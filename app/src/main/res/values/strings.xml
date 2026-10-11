@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Vulkan Breakout</string>
+    <string name="display_category_xr_projected" translatable="false">xr_projected</string>
+</resources>
