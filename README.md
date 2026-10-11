@@ -33,8 +33,7 @@ coloured bricks, across ten increasingly difficult levels. Sibling project of
 hand-written renderer, procedural audio engine, AI-Glasses bridge and CI
 architecture, with a brand-new game on top.
 
-> **Status:** this is the project skeleton — engine, build, tests and CI, with
-> a title screen and the Settings overlay. The gameplay, the Auto Play
+> **Status:** engine, gameplay, build, tests and CI are in. The Auto Play
 > autopilot and the AI-Glasses mode land in the next pull requests.
 
 ## Gameplay
@@ -42,17 +41,54 @@ architecture, with a brand-new game on top.
 | Control | Action |
 |---------|--------|
 | Hold the **strip below the paddle** (bottom ~15% of screen) | The paddle slides toward your finger while pressed |
-| Tap anywhere | Launch a ball resting on the paddle |
+| Tap anywhere (or hold the strip) | Launch a ball resting on the paddle |
 | Tap the **gear icon** (top-right) | Open Settings from any screen |
+| Tap anywhere on the title / game-over screen | Start / return to title |
 
 - **Goal:** break every brick in the wall before you run out of balls.
-- **Progression:** 10 levels, easy to hard — denser walls, tougher bricks,
-  unbreakable steel blocks in the way and a faster ball.
-- **Bricks:** one bright colour per row so the wall reads at a glance; bricks
-  that take more than one hit show an inner core per hit left.
-- **Lives:** 5 balls per game.
+- **Progression:** 10 levels, easy to hard. Level 1 is 4 rows of plain
+  bricks; the wall grows to 9 rows by level 10, with **tough** bricks (two
+  hits) from level 3, **armoured** bricks (three hits) from level 7,
+  unbreakable **steel** blocks in the way from level 5 and holes in the
+  bottom row on some levels. The ball starts faster on every level and
+  **speeds up as the wall thins** (up to +20%).
+- **The wall fits the screen:** bricks have a fixed size and as many columns
+  as fit are laid out — 7 on a portrait phone, 16 on an unfolded foldable,
+  36 in landscape. A fold or unfold mid-level rebuilds the wall for the new
+  width (score and lives stay).
+- **Bricks:** one bright colour per row (red, orange, yellow, green, cyan,
+  blue, purple, pink, white) with a bevelled top and a dark bottom edge so the
+  wall reads as solid blocks; bricks that take more than one hit show an
+  inner core per hit left; steel is grey with rivets. Plain 10 pts · tough
+  20 pts · armoured 30 pts — all ×level.
+- **Aim with the paddle:** where the ball meets the paddle sets the rebound —
+  the centre sends it (almost) straight up, the tips 65° out. The ball never
+  leaves the paddle perfectly vertical and never shuttles near-horizontally
+  after a bounce, so there are no dead loops.
+- **Bonuses:** 12% drop chance on each broken brick: 🔵 **Wide paddle**
+  (+60% width, 10 s) · 🟣 **Slow ball** (×0.6 speed, 8 s) · 🟠 **Multi-ball**
+  (every ball in play splits into three, up to six) · 🟢 **Extra life** (rare,
+  up to 9). +25 pts ×level on pickup; the timed bonuses show as HUD bars
+  and end with the ball.
+- **Lives:** 5 balls. A ball that passes the paddle is gone — a fresh one is
+  served on the paddle and launches on your next tap. Losing one of several
+  balls costs nothing. The game ends when the last ball is lost.
+- **Level clear:** +100 pts ×level. Clearing level 10 wins the game.
+- **HUD:** score (top-left) · balls left as mini paddles (top-center) · level
+  (top-right) · active bonuses with timer bars (left edge).
+- **High scores:** top-5 leaderboard persisted locally; gold/silver/bronze
+  podium on the title screen; gold pulsing score + rank medal on game over
+  when a new record is set.
+- **Screen shake** and a **haptic pulse** (50 ms) when a ball is lost; the
+  HUD stays stable.
+- **Sound:** all effects synthesised in real time — paddle blip, wall tick,
+  brick click, a brick-break pop pitched by row (the wall is a keyboard, top
+  row highest), ball-lost slide, level-clear and extra-life jingles, pickup
+  sparkle, and a 92 BPM ambient bed.
 - **Settings:** gear icon opens an overlay from any screen. Toggles: Sound
-  on/off. Persists across app restarts.
+  on/off. Persists across app restarts. The game freezes under the overlay.
+- **Resumes after process death:** level, score and lives are saved with the
+  activity state; the wall comes back fresh.
 
 ## Tech
 
@@ -115,12 +151,26 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-15 tests covering the wall layout (columns follow the screen width), the
-title demo (ball stays inside the walls, huge-frame dt clamp), the settings
-state machine (gear tap, sound toggle, back button, no gear inside Settings,
-persistence across instances, reload-from-disk handoff), the AI-Glasses
-plumbing (no gear on the glasses, pure-black clear) and render coverage of
-every reachable state (output present, every shape inside the screen).
+79 tests covering the wall (columns follow the screen width, rows per level,
+every wall fits the screen, tough/armoured/steel bricks arriving with the
+levels, holes, level clamp at 10), serve and launch (the ball waits on the
+paddle and follows it, the serve delay, tap and strip-hold launches), paddle
+control (steer, stop-on-finger, clamping, zone boundary, drag, cancel,
+viewport shrink), the huge-frame dt clamp, ball physics (side walls, ceiling,
+paddle bounce and its angle by hit position, never perfectly vertical, lost
+ball costs a life and re-serves, game over on the last life, brick breaking
+and scoring, two-hit bricks, steel, side hits reflecting horizontally, speed
+ramp, per-level speed, no tunnelling at the clamped worst-case dt), bonuses
+(capsule fall and pickup, fall-through, wide paddle and its clamp-back on
+expiry, slow ball, multi-ball split and cap, extra life up to nine, losing one
+of several balls, bonuses ending with the ball), progression (level-scaled
+clear bonus, in-flight wipe on clear, win at level 10, game over grace tap,
+title-return cleanup, wall rebuild on fold), process-death session restore
+(bounds-checked), high-score persistence (ordering, displacement, cap,
+cross-instance disk merge, exact-duplicate skip, reload-from-disk handoff,
+zero-score guard, tie guard), the settings state machine (gear tap from title
+and in play, freeze under the overlay, toggles, back button, persistence,
+reload), the AI-Glasses plumbing and render coverage of every reachable state.
 
 They build and run on the host in a few seconds — no device, no emulator:
 
@@ -163,7 +213,7 @@ reports its findings without ever blocking a PR.
 |-----|-------------|-----------|
 | **Build APK** | Compiles the debug APK | `debug-apk` |
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
-| **Native Tests** | Runs the same 15 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
+| **Native Tests** | Runs the same 79 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators and captures an in-game screenshot via `UiAutomation`. The test asserts the activity is RESUMED **and** that the renderer logged `First frame presented`, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0 and 37.1 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*` |
 | **Emulator Preview** | Boots the Android Emulator Preview package (`emulators;latest`, which installs alongside the stable emulator under `emulators/latest/`) and runs the instrumented test against it | `preview-smoke-*` |
