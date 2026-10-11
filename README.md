@@ -36,11 +36,16 @@ architecture, with a brand-new game on top.
 
 ## Screenshots
 
-Captured on an Android emulator (API 36, x86_64).
+Captured on an Android emulator (API 37, x86_64) with **Auto Play** driving
+the rounds.
 
-| Title | A round, ball served |
+| Title | Auto Play: capsules on the way down |
 |:---:|:---:|
-| <img src="docs/screenshots/title.png" width="360" alt="Title screen with the demo wall, the bouncing ball and the paddle"> | <img src="docs/screenshots/gameplay.png" width="360" alt="Level 1 with the ball resting on the paddle and the TAP TO LAUNCH hint"> |
+| <img src="docs/screenshots/title.png" width="360" alt="Title screen with the demo wall, the bouncing ball and the paddle"> | <img src="docs/screenshots/autoplay-action.png" width="360" alt="Level 1 under Auto Play with a multi-ball and a slow-ball capsule falling"> |
+
+| Auto Play: three balls up, slow ball running | Settings |
+|:---:|:---:|
+| <img src="docs/screenshots/autoplay-multiball.png" width="360" alt="Three balls in play after a multi-ball pickup, the slow-ball timer bar in the control strip"> | <img src="docs/screenshots/settings.png" width="360" alt="Settings overlay with the Sound, Auto Play and Glasses rows"> |
 
 ## Gameplay
 
