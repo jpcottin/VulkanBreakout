@@ -6,6 +6,19 @@
 #include <cstring>
 #include <unistd.h>
 
+// ---- level tuning (1..10, easy -> hard) ----
+static int clampLevel(int L) { return L < 1 ? 1 : (L > 10 ? 10 : L); }
+// Rows of bricks per level: 4 at level 1, up to 9 at level 10.
+static int rowsForLevel(int L) {
+    static const int kRows[10] = {4, 5, 5, 6, 6, 7, 7, 8, 8, 9};
+    return kRows[clampLevel(L) - 1];
+}
+// Base ball speed per level, in world units per second (the screen is 2 tall).
+static float levelBallSpeed(int L) { return 0.90f + 0.065f * (float)(clampLevel(L) - 1); }
+// The ball gets up to this much faster as the wall thins out (classic).
+static const float kSpeedRamp  = 0.20f;
+static const float kSlowFactor = 0.60f;   // slow-ball bonus
+
 // ---- wall geometry (world units) ----
 // Bricks have a fixed size; the number of columns follows the screen width,
 // so a wide screen (landscape, an unfolded foldable) gets a wider wall rather
@@ -17,11 +30,25 @@ static const float kBrickGapY = 0.012f;
 static const float kWallTopY  = -0.78f;   // centre of row 0
 static const float kSideMargin = 0.020f;  // smallest gap between the wall and a side
 
-// Paddle line and the pit below it.
-static const float kPaddleY   = 0.62f;
-static const float kPaddleHW  = 0.100f;   // half-width (normal)
-static const float kPaddleHH  = 0.014f;
-static const float kBallR     = 0.016f;
+// Paddle line, the ball and the pit below the paddle.
+static const float kPaddleY      = 0.62f;
+static const float kPaddleHW     = 0.100f;   // half-width (normal)
+static const float kWidePaddleHW = 0.160f;   // half-width with the wide bonus
+static const float kPaddleHH     = 0.014f;
+static const float kPaddleSpeed  = 2.8f;
+static const float kBallR        = 0.016f;
+static const float kPitY         = 0.72f;    // ball centre past this: lost
+static const float kServeDelay   = 0.5f;     // a served ball waits this long for a tap
+static const float kMaxBounceAngle = 65.0f * 3.14159265f / 180.0f;   // off the paddle's tip
+static const float kMinBounceAngle =  8.0f * 3.14159265f / 180.0f;   // never straight up
+static const float kMinDy    = 0.25f;    // after a wall/brick bounce: no near-horizontal shuttling
+static const float kBallStep = 0.008f;   // collision substep length (half the ball radius)
+static const int   kMaxBalls = 6;
+
+// Bonuses.
+static const float kPowerUpSpeed = 0.30f;
+static const float kPowerUpR     = 0.035f;
+static const float kDropChance   = 0.12f;   // per broken brick
 
 // Control strip: the bottom 15% of the screen, below the paddle. A finger
 // there steers the paddle toward the finger x.
@@ -30,6 +57,11 @@ static const float kCtrlZoneTopW = 0.70f;  // same boundary in world y
 
 // Top wall: just below the HUD line.
 static const float kTopWallY = -0.83f;
+
+// Points per broken brick by kind (x level): normal, tough, armour.
+static const int kBrickScore[3] = {10, 20, 30};
+static const int kPowerUpScore    = 25;
+static const int kLevelClearScore = 100;
 
 // Brick colours by row: a bright rainbow so every row reads at a glance.
 static const float kRowCol[9][3] = {
@@ -44,6 +76,21 @@ static const float kRowCol[9][3] = {
     {0.92f, 0.92f, 0.95f},   // white
 };
 static const float kSteelCol[3] = {0.55f, 0.58f, 0.66f};
+// Bonus capsule colours: wide, slow, multi, life.
+static const float kPowerUpCol[4][3] = {
+    {0.30f, 0.85f, 1.00f},
+    {0.80f, 0.45f, 1.00f},
+    {1.00f, 0.65f, 0.20f},
+    {0.40f, 0.95f, 0.45f},
+};
+
+// High-score podium colours (gold/silver/bronze), shared by the title table
+// and the rank digit on the game-over/win screens.
+static const float kPodiumCol[3][3] = {
+    {1.00f, 0.85f, 0.20f},   // gold
+    {0.78f, 0.82f, 0.92f},   // silver
+    {0.72f, 0.47f, 0.22f},   // bronze
+};
 
 // 7-segment masks for digits 0..9 (bit a=1,b=2,c=4,d=8,e=16,f=32,g=64).
 static const int kDigitSeg[10] = {63, 6, 91, 79, 102, 109, 125, 7, 127, 111};
@@ -57,6 +104,60 @@ static constexpr float kSettingSoundY = -0.15f;
 static constexpr float kSettingBackY  =  0.66f;
 
 static const uint32_t kSettingsMagic = 0x53455454u;  // "SETT"
+static const uint32_t kHsMagic       = 0x4F4B5242u;  // "BRKO"
+
+// On-disk layout of highscores.bin (little-endian, fixed size).
+struct HighScoreFile {
+    uint32_t magic, count;
+    struct { int64_t score; int32_t level; } e[Game::kMaxScores];
+};
+
+// Zero the screen-shake offset for the lifetime of the guard so HUD and
+// overlay elements are drawn shake-free, then restore it.
+struct ShakeOff {
+    float &x, &y, sx, sy;
+    ShakeOff(float& x_, float& y_) : x(x_), y(y_), sx(x_), sy(y_) { x = 0.0f; y = 0.0f; }
+    ~ShakeOff() { x = sx; y = sy; }
+};
+
+// The wall of a level, slot by slot. `present` is false for a hole.
+static Game::BrickType brickTypeAt(int L, int row, int col, int rows, bool& present) {
+    present = true;
+    const bool oddCol = (col % 2) == 1;
+    switch (clampLevel(L)) {
+        case 1:
+        case 2:  return Game::BRICK_NORMAL;
+        case 3:  return row == 0 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL;
+        case 4:  if (row == rows - 1 && oddCol) present = false;
+                 return row <= 1 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL;
+        case 5:  if (row == 3 && col % 3 == 1) return Game::BRICK_STEEL;
+                 return row <= 1 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL;
+        case 6:  if (row == 4 && col % 3 == 0) return Game::BRICK_STEEL;
+                 return row <= 2 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL;
+        case 7:  if (row == 4 && col % 3 == 1) return Game::BRICK_STEEL;
+                 if (row == rows - 1 && oddCol) present = false;
+                 return row == 0 ? Game::BRICK_ARMOR
+                      : (row <= 2 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL);
+        case 8:  if (row == 5 && !oddCol) return Game::BRICK_STEEL;
+                 return row == 0 ? Game::BRICK_ARMOR
+                      : (row <= 3 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL);
+        case 9:  if (row == 5 && oddCol) return Game::BRICK_STEEL;
+                 return row <= 1 ? Game::BRICK_ARMOR
+                      : (row <= 3 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL);
+        default: if (row == 6 && col % 3 != 1) return Game::BRICK_STEEL;
+                 return row <= 1 ? Game::BRICK_ARMOR
+                      : (row <= 4 ? Game::BRICK_TOUGH : Game::BRICK_NORMAL);
+    }
+}
+
+static int hitsFor(Game::BrickType t) {
+    switch (t) {
+        case Game::BRICK_NORMAL: return 1;
+        case Game::BRICK_TOUGH:  return 2;
+        case Game::BRICK_ARMOR:  return 3;
+        default:                 return 1;   // steel: never decremented
+    }
+}
 
 
 Game::Game() { buildDemoWall(); }   // title screen shows a demo wall
@@ -73,21 +174,51 @@ void Game::setViewport(int w, int h) {
     if (w <= 0 || h <= 0) return;
     vw_ = w; vh_ = h;
     float asp = (float)w / (float)h;
-    if (asp != asp_) {
-        asp_ = asp;
-        // The wall is laid out for the screen width: rebuild it.
-        if (state_ == TITLE) buildDemoWall();
-        float lim = asp_ - kPaddleHW;
-        if (demoPaddleX_ > lim) demoPaddleX_ = lim;
-        if (demoPaddleX_ < -lim) demoPaddleX_ = -lim;
+    if (asp == asp_) return;
+    asp_ = asp;
+    // The wall is laid out for the screen width. A fold/unfold mid-level
+    // changes how many columns fit: the level's wall is rebuilt (score and
+    // lives stay) rather than left sticking out of the new screen.
+    if (wallCols() != wallCols_) {
+        State scene = (state_ == SETTINGS) ? prevState_ : state_;
+        if (scene == TITLE) {
+            buildDemoWall();
+        } else if (scene == PLAYING) {
+            buildWall(level_);
+            resetBattlefield();
+            speedBoost_ = 0.0f;
+            serveBall();
+        }
+        // LEVEL_CLEAR / GAME_OVER / WIN: the next level or the title rebuilds.
     }
+    float lim = asp_ - paddleHalfW();
+    if (paddleX_ > lim) paddleX_ = lim;
+    if (paddleX_ < -lim) paddleX_ = -lim;
+    if (demoPaddleX_ > lim) demoPaddleX_ = lim;
+    if (demoPaddleX_ < -lim) demoPaddleX_ = -lim;
 }
 
 // --- input helpers ---
+// The control zone is the bottom strip below the paddle. Any finger there
+// steers the paddle (toward the finger x).
+
 // In CONTROL_TOUCHBAR mode (AI glasses) the whole surface is the control bar;
 // in CONTROL_STRIP mode only the bottom strip counts.
 bool Game::pointerInControlZone(const Pointer& p) const {
     return p.active && (controlMode_ == CONTROL_TOUCHBAR || p.y > (float)vh_ * kCtrlZoneFrac);
+}
+
+bool Game::moveHeld() const {
+    for (auto& p : pointers_)
+        if (pointerInControlZone(p)) return true;
+    return false;
+}
+
+float Game::controlTargetX() const {
+    for (auto& p : pointers_)
+        if (pointerInControlZone(p))
+            return (2.0f * p.x / (float)vw_ - 1.0f) * asp_;
+    return paddleX_;
 }
 
 // Entering/leaving a glasses session: the phone instance freezes its own
@@ -123,7 +254,8 @@ void Game::onPointersCancel() {
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 // Write `buf` to `path` atomically: a crash between truncate and write can't
-// leave a half-written file behind.
+// leave a half-written file behind, and the loader would otherwise discard
+// the short file and the next save would wipe the table.
 static void writeFileAtomic(const char* path, const void* buf, size_t len) {
     char tmp[600];
     if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) return;
@@ -143,12 +275,78 @@ void Game::setDataPath(const char* path) {
     if (!path || path[0] == '\0') return;
     snprintf(dataPath_,     sizeof(dataPath_),     "%s/highscores.bin", path);
     snprintf(settingsPath_, sizeof(settingsPath_), "%s/settings.bin",   path);
+    loadHighScores();
     loadSettings();
+}
+
+void Game::loadHighScores() {
+    if (dataPath_[0] == '\0') return;
+    FILE* f = fopen(dataPath_, "rb");
+    if (!f) return;
+    HighScoreFile buf{};
+    if (fread(&buf, sizeof(buf), 1, f) == 1 && buf.magic == kHsMagic) {
+        int n = (int)buf.count < kMaxScores ? (int)buf.count : kMaxScores;
+        for (int i = 0; i < n; i++) {
+            highScores_[i].score = (long)buf.e[i].score;
+            highScores_[i].level = buf.e[i].level;
+        }
+    }
+    fclose(f);
+}
+
+// Insert a score at its rank unless the identical entry is already present.
+// Exact-duplicate skipping matters because the phone and glasses instances
+// load the same file: without it every merge would double the shared rows.
+int Game::mergeHighScore(long score, int level) {
+    if (score <= 0) return -1;
+    for (const auto& hs : highScores_)
+        if (hs.score == score && hs.level == level) return -1;
+    int pos = kMaxScores;
+    for (int i = 0; i < kMaxScores; i++)
+        if (score > highScores_[i].score) { pos = i; break; }
+    if (pos == kMaxScores) return -1;
+    for (int i = kMaxScores - 1; i > pos; i--) highScores_[i] = highScores_[i - 1];
+    highScores_[pos] = {score, level};
+    return pos;
+}
+
+// The other instance (phone vs glasses, same process, separate Game objects)
+// may have saved since we loaded: merge the disk table into ours so a stale
+// in-memory copy never clobbers a saved score.
+void Game::mergeDiskHighScores() {
+    if (dataPath_[0] == '\0') return;
+    FILE* rf = fopen(dataPath_, "rb");
+    if (!rf) return;
+    HighScoreFile in{};
+    if (fread(&in, sizeof(in), 1, rf) == 1 && in.magic == kHsMagic) {
+        int n = (int)in.count < kMaxScores ? (int)in.count : kMaxScores;
+        for (int i = 0; i < n; i++)
+            mergeHighScore((long)in.e[i].score, in.e[i].level);
+    }
+    fclose(rf);
+}
+
+void Game::saveHighScores() {
+    mergeDiskHighScores();
+    writeHighScores();
+}
+
+void Game::writeHighScores() {
+    if (dataPath_[0] == '\0') return;
+    HighScoreFile buf{};
+    buf.magic = kHsMagic;
+    buf.count = kMaxScores;
+    for (int i = 0; i < kMaxScores; i++) {
+        buf.e[i].score = (int64_t)highScores_[i].score;
+        buf.e[i].level = highScores_[i].level;
+    }
+    writeFileAtomic(dataPath_, &buf, sizeof(buf));
 }
 
 // Re-read persisted state. The phone and glasses instances share the files;
 // whichever regains focus adopts what the other saved while it was away.
 void Game::reloadFromDisk() {
+    loadHighScores();
     loadSettings();
     syncMusic();   // the other instance may have toggled Sound
 }
@@ -156,6 +354,8 @@ void Game::reloadFromDisk() {
 // The single rule for the music flag: it plays from the start of a round
 // through the end screen (and under a Settings overlay opened from those),
 // when sound is on, and not on the phone while the round runs on the glasses.
+// Called whenever any input changes, including when the audio engine arrives
+// after a process-death restore already started a round.
 void Game::syncMusic() {
     if (!audio_) return;
     State s = (state_ == SETTINGS) ? prevState_ : state_;
@@ -164,11 +364,15 @@ void Game::syncMusic() {
     audio_->setMusicEnabled(soundEnabled_ && inRound && !handedOff);
 }
 
-// Resume a run after process death. Bounds-checked because the saved blob
-// comes back from the OS, not from us. Gameplay arrives with the next step of
-// the project; until then there is no run to resume.
+// Resume a run after process death: same level, score, and lives, but a
+// fresh wall — entity positions aren't persisted. Bounds-checked because the
+// saved blob comes back from the OS, not from us.
 void Game::restoreSession(int level, long score, int lives) {
-    if (level < 1 || level > 10 || lives < 1 || lives > 5 || score < 0) return;
+    if (level < 1 || level > 10 || lives < 1 || lives > kMaxLives || score < 0) return;
+    startGame();
+    if (level > 1) startLevel(level);
+    score_ = score;
+    lives_ = lives;
 }
 
 void Game::loadSettings() {
@@ -200,6 +404,20 @@ bool Game::isGearTap(float px, float py) const {
     return dx*dx + dy*dy < 0.0081f;  // 0.09 world units radius
 }
 
+void Game::checkHighScore() {
+    if (score_ <= 0) return;
+    // Same dedupe rule as the disk merge, and the rank is taken after the
+    // other instance's rows have been folded in, so the digit on the end
+    // screen matches the saved table. An exact tie with an existing row is
+    // not a new record.
+    mergeDiskHighScores();
+    int pos = mergeHighScore(score_, level_);
+    if (pos < 0) return;
+    newHighScore_     = true;
+    newHighScoreRank_ = pos;
+    writeHighScores();
+}
+
 // ── The wall ──────────────────────────────────────────────────────────────────
 
 // Columns that fit between the side margins at this aspect ratio.
@@ -210,24 +428,266 @@ int Game::wallCols() const {
 }
 
 float Game::brickX(const Brick& b) const {
-    int cols = wallCols();
-    return ((float)b.col - (float)(cols - 1) * 0.5f) * (2.0f * kBrickHW + kBrickGapX);
+    return ((float)b.col - (float)(wallCols_ - 1) * 0.5f) * (2.0f * kBrickHW + kBrickGapX);
 }
 float Game::brickY(const Brick& b) const {
     return kWallTopY + (float)b.row * (2.0f * kBrickHH + kBrickGapY);
 }
 
+int Game::breakableLeft() const {
+    int n = 0;
+    for (auto& b : bricks_) if (b.alive && b.type != BRICK_STEEL) n++;
+    return n;
+}
+
+void Game::buildWall(int level) {
+    wallCols_ = wallCols();
+    rows_ = rowsForLevel(level);
+    bricks_.clear();
+    bricks_.reserve((size_t)rows_ * wallCols_);
+    for (int r = 0; r < rows_; r++)
+        for (int c = 0; c < wallCols_; c++) {
+            bool present;
+            BrickType t = brickTypeAt(level, r, c, rows_, present);
+            bricks_.push_back({r, c, t, hitsFor(t), present});
+        }
+    wallTotal_ = breakableLeft();
+}
+
 // The title screen's wall: five full rows, one colour per row.
 void Game::buildDemoWall() {
-    int cols = wallCols();
+    wallCols_ = wallCols();
+    rows_ = 5;
     bricks_.clear();
-    bricks_.reserve((size_t)5 * cols);
-    for (int r = 0; r < 5; r++)
-        for (int c = 0; c < cols; c++)
+    bricks_.reserve((size_t)rows_ * wallCols_);
+    for (int r = 0; r < rows_; r++)
+        for (int c = 0; c < wallCols_; c++)
             bricks_.push_back({r, c, BRICK_NORMAL, 1, true});
+    wallTotal_ = (int)bricks_.size();
     demoBallX_ = 0.0f; demoBallY_ = 0.20f;
     demoBallVx_ = 0.55f; demoBallVy_ = 0.80f;
     demoPaddleX_ = 0.0f;
+}
+
+// ── Rounds ────────────────────────────────────────────────────────────────────
+
+void Game::startGame() {
+    score_ = 0;
+    lives_ = 5;
+    paddleHits_ = 0; bricksBroken_ = 0; ballsLost_ = 0;
+    newHighScore_     = false;
+    newHighScoreRank_ = -1;
+    bonusFlashTimer_  = 0.0f;
+    level_ = 1;
+    startLevel(1);
+}
+
+void Game::resetBattlefield() {
+    balls_.clear();
+    powerUps_.clear();
+    particles_.clear();
+    explosions_.clear();
+    ballHeld_ = false;
+    wideTimer_ = 0.0f;
+    slowTimer_ = 0.0f;
+}
+
+void Game::startLevel(int level) {
+    level_ = clampLevel(level);
+    buildWall(level_);
+    resetBattlefield();
+    paddleX_ = 0.0f;
+    speedBoost_ = 0.0f;
+    shakeAmt_ = 0.0f; shakeX_ = 0.0f; shakeY_ = 0.0f;
+    serveBall();
+    state_ = PLAYING;
+    syncMusic();
+}
+
+// A new ball rests on the paddle until a tap (or the strip) launches it.
+void Game::serveBall() {
+    balls_.clear();
+    Ball b;
+    b.x = paddleX_;
+    b.y = kPaddleY - kPaddleHH - kBallR;
+    b.dx = 0.0f; b.dy = -1.0f;
+    b.alive = true;
+    balls_.push_back(b);
+    ballHeld_   = true;
+    serveTimer_ = kServeDelay;
+}
+
+// Up and to one side, 14-31 degrees off vertical.
+void Game::launchBall() {
+    ballHeld_ = false;
+    float a = (frand() < 0.5f ? -1.0f : 1.0f) * frange(0.25f, 0.55f);
+    for (auto& b : balls_)
+        if (b.alive) { b.dx = sinf(a); b.dy = -cosf(a); }
+}
+
+float Game::ballSpeed() const {
+    float s = levelBallSpeed(level_) * (1.0f + kSpeedRamp * speedBoost_);
+    if (slowTimer_ > 0.0f) s *= kSlowFactor;
+    return s;
+}
+
+float Game::paddleHalfW() const {
+    return wideTimer_ > 0.0f ? kWidePaddleHW : kPaddleHW;
+}
+
+// After a bounce off a wall or a brick: keep the ball from shuttling almost
+// horizontally, which is a slow way to play nothing.
+static void ensureMinDy(float& dx, float& dy) {
+    if (fabsf(dy) >= kMinDy) return;
+    float sdy = dy < 0.0f ? -1.0f : 1.0f;
+    float sdx = dx < 0.0f ? -1.0f : 1.0f;
+    dy = sdy * kMinDy;
+    dx = sdx * sqrtf(1.0f - kMinDy * kMinDy);
+}
+
+// The bounce angle follows where the ball met the paddle: the centre sends
+// it (almost) straight up, the tips 65 degrees out. That is the player's
+// aim.
+void Game::bounceOffPaddle(Ball& b) {
+    float u = (b.x - paddleX_) / paddleHalfW();
+    if (u >  1.0f) u =  1.0f;
+    if (u < -1.0f) u = -1.0f;
+    float a = u * kMaxBounceAngle;
+    if (fabsf(a) < kMinBounceAngle)
+        a = (u < 0.0f || (u == 0.0f && b.dx < 0.0f)) ? -kMinBounceAngle : kMinBounceAngle;
+    b.dx =  sinf(a);
+    b.dy = -cosf(a);
+    paddleHits_++;
+    if (audio_ && soundEnabled_) audio_->triggerPaddle();
+}
+
+bool Game::hitBrick(Brick& br) {
+    if (br.type == BRICK_STEEL) {
+        if (audio_ && soundEnabled_) audio_->triggerBrickHit();
+        return false;
+    }
+    br.hp--;
+    if (br.hp > 0) {
+        if (audio_ && soundEnabled_) audio_->triggerBrickHit();
+        return false;
+    }
+    br.alive = false;
+    bricksBroken_++;
+    float x = brickX(br), y = brickY(br);
+    const float* c = kRowCol[br.row % 9];
+    spawnDebris(x, y, kBrickHW, c[0], c[1], c[2]);
+    score_ += (long)kBrickScore[br.type] * level_;
+    // The ball speeds up as the wall thins.
+    speedBoost_ = wallTotal_ > 0 ? 1.0f - (float)breakableLeft() / (float)wallTotal_ : 0.0f;
+    if (audio_ && soundEnabled_) {
+        // One semitone per row, the top row highest: the wall is a keyboard.
+        float hz = 523.25f * powf(2.0f, (float)(rows_ - 1 - br.row) / 12.0f);
+        audio_->triggerBrickBreak(hz);
+    }
+    if (frand() < kDropChance) spawnPowerUp(x, y);
+    return true;
+}
+
+void Game::spawnPowerUp(float x, float y) {
+    PowerUp p;
+    p.x  = x;
+    p.y  = y;
+    p.vy = kPowerUpSpeed;
+    // Weighted: wide 35%, slow 30%, multi 25%, extra life 10%.
+    float roll = frand();
+    p.type = roll < 0.35f ? PU_WIDE : (roll < 0.65f ? PU_SLOW : (roll < 0.90f ? PU_MULTI : PU_LIFE));
+    p.alive = true;
+    powerUps_.push_back(p);
+}
+
+// Grant a bonus. Shared by the pickup path and the test hook so tests
+// exercise the production timers, not a copy of them.
+void Game::applyPowerUp(PowerUpType t) {
+    switch (t) {
+        case PU_WIDE: wideTimer_ = kWideDuration; break;
+        case PU_SLOW: slowTimer_ = kSlowDuration; break;
+        case PU_MULTI: {
+            // Every ball in play splits into three (fanned 23 degrees apart),
+            // up to the cap. A ball still resting on the paddle launches first.
+            if (ballHeld_) launchBall();
+            int n0 = (int)balls_.size();
+            for (int i = 0; i < n0 && (int)balls_.size() < kMaxBalls; i++) {
+                if (!balls_[i].alive) continue;
+                for (int s = -1; s <= 1 && (int)balls_.size() < kMaxBalls; s += 2) {
+                    const float th = 0.40f * (float)s;
+                    Ball b = balls_[i];
+                    float dx = balls_[i].dx, dy = balls_[i].dy;
+                    b.dx = dx * cosf(th) - dy * sinf(th);
+                    b.dy = dx * sinf(th) + dy * cosf(th);
+                    ensureMinDy(b.dx, b.dy);
+                    balls_.push_back(b);
+                }
+            }
+            break;
+        }
+        case PU_LIFE:
+            if (lives_ < kMaxLives) lives_++;
+            break;
+    }
+}
+
+void Game::spawnDebris(float ax, float ay, float ar, float cr, float cg, float cb) {
+    // Expanding flash ring
+    Explosion e;
+    e.x = ax; e.y = ay; e.radius = ar * 0.5f;
+    e.t = 0.0f; e.maxLife = 0.20f;
+    e.cr = cr; e.cg = cg; e.cb = cb;
+    e.alive = true;
+    explosions_.push_back(e);
+
+    // 8 fragments flying outward
+    for (int i = 0; i < 8; i++) {
+        float angle = frange(0.0f, 6.2832f);
+        float speed = frange(0.4f, 1.3f);
+        Particle p;
+        p.x = ax + cosf(angle) * ar * 0.4f;
+        p.y = ay + sinf(angle) * ar * 0.4f;
+        p.vx = cosf(angle) * speed;
+        p.vy = sinf(angle) * speed;
+        p.rot  = frange(0.0f, 6.2832f);
+        p.spin = frange(-5.0f, 5.0f);
+        p.t       = 0.0f;
+        p.maxLife = frange(0.25f, 0.50f);
+        p.size    = ar * frange(0.12f, 0.28f);
+        p.r = cr + frange(-0.08f, 0.08f);
+        p.g = cg + frange(-0.08f, 0.08f);
+        p.b = cb + frange(-0.08f, 0.08f);
+        p.alive = true;
+        particles_.push_back(p);
+    }
+}
+
+// The last ball went into the pit: a life, the bonuses and the shake. The
+// next ball is served at once; the game ends on the last life.
+void Game::loseBall() {
+    ballsLost_++;
+    lives_--;
+    wideTimer_ = 0.0f;
+    slowTimer_ = 0.0f;
+    shakeAmt_ = 1.0f;
+    if (audio_ && soundEnabled_) audio_->triggerBallLost();
+    if (haptic_) haptic_();
+    Explosion flash;
+    flash.x = paddleX_; flash.y = kPaddleY; flash.radius = kPaddleHW * 0.6f;
+    flash.t = 0.0f; flash.maxLife = 0.25f;
+    flash.cr = 1.0f; flash.cg = 0.35f; flash.cb = 0.30f;
+    flash.alive = true;
+    explosions_.push_back(flash);
+    if (lives_ <= 0) {
+        balls_.clear();
+        state_ = GAME_OVER; stateTimer_ = 0.0f;
+        checkHighScore();
+        return;
+    }
+    float lim = asp_ - paddleHalfW();
+    if (paddleX_ > lim) paddleX_ = lim;
+    if (paddleX_ < -lim) paddleX_ = -lim;
+    serveBall();
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -235,6 +695,41 @@ void Game::buildDemoWall() {
 void Game::update(float dt) {
     if (dt > 0.05f) dt = 0.05f;   // clamp huge hitches
     animTime_ += dt;
+
+    // Particles and explosions animate in all states.
+    // Drag is exponential decay, normalized to a 60 Hz reference so debris
+    // behaves the same at any refresh rate.
+    float drag = powf(0.88f, dt * 60.0f);
+    for (auto& p : particles_) {
+        if (!p.alive) continue;
+        p.x  += p.vx * dt; p.y  += p.vy * dt;
+        p.vx *= drag;      p.vy *= drag;
+        p.rot += p.spin * dt;
+        p.t   += dt;
+        if (p.t >= p.maxLife) p.alive = false;
+    }
+    particles_.erase(std::remove_if(particles_.begin(), particles_.end(),
+                                    [](const Particle& p) { return !p.alive; }),
+                     particles_.end());
+
+    for (auto& e : explosions_) {
+        if (!e.alive) continue;
+        e.t += dt;
+        if (e.t >= e.maxLife) e.alive = false;
+    }
+    explosions_.erase(std::remove_if(explosions_.begin(), explosions_.end(),
+                                     [](const Explosion& e) { return !e.alive; }),
+                      explosions_.end());
+
+    // Screen shake decay, 60 Hz-normalized like the particle drag above.
+    if (shakeAmt_ > 0.0f) {
+        shakeX_ = frange(-1.0f, 1.0f) * shakeAmt_ * 0.030f;
+        shakeY_ = frange(-1.0f, 1.0f) * shakeAmt_ * 0.030f;
+        shakeAmt_ *= powf(0.78f, dt * 60.0f);
+        if (shakeAmt_ < 0.01f) { shakeAmt_ = 0.0f; shakeX_ = 0.0f; shakeY_ = 0.0f; }
+    }
+
+    if (bonusFlashTimer_ > 0.0f) bonusFlashTimer_ -= dt;
 
     bool tapped = tapPending_;
     tapPending_ = false;
@@ -248,6 +743,7 @@ void Game::update(float dt) {
 
     switch (state_) {
         case TITLE: {
+            if (tapped) { startGame(); break; }
             // Demo under the title: the ball bounces between the side walls,
             // the bottom of the wall and the paddle line, and the paddle
             // slides to meet it.
@@ -266,11 +762,38 @@ void Game::update(float dt) {
             else demoPaddleX_ += dx > 0.0f ? stepX : -stepX;
             break;
         }
-        case PLAYING:
-        case LEVEL_CLEAR:
-        case GAME_OVER:
-        case WIN:
+        case PLAYING: {
+            // One frame of gameplay, in order. State may flip to GAME_OVER
+            // (last ball lost) or LEVEL_CLEAR / WIN mid-sequence; once it
+            // does, the remaining steps are skipped — checkHighScore() has
+            // already saved, so nothing may score or collect after the end.
+            updatePaddle(dt);
+            if (ballHeld_ && serveTimer_ <= 0.0f && (tapped || moveHeld())) launchBall();
+            updateBalls(dt);
+            if (state_ == PLAYING) updatePowerUps(dt);
+            if (state_ == PLAYING) checkLevelClear();
             break;
+        }
+        case LEVEL_CLEAR: {
+            stateTimer_ += dt;
+            if (stateTimer_ >= 1.8f) startLevel(level_ + 1);
+            break;
+        }
+        case GAME_OVER:
+        case WIN: {
+            stateTimer_ += dt;
+            if (tapped && stateTimer_ > 0.6f) {
+                state_ = TITLE;
+                level_ = 1;
+                // Clear every leftover, or it renders frozen on the title
+                // screen forever (nothing updates it there).
+                resetBattlefield();
+                buildDemoWall();
+                shakeAmt_ = 0.0f; shakeX_ = 0.0f; shakeY_ = 0.0f;
+                syncMusic();
+            }
+            break;
+        }
         case SETTINGS: {
             if (tapped) {
                 float wy = 2.0f * tapY_ / (float)vh_ - 1.0f;
@@ -293,6 +816,162 @@ void Game::update(float dt) {
     }
 }
 
+// ---- PLAYING-state update steps ----
+
+void Game::updatePaddle(float dt) {
+    if (moveHeld()) {
+        float target = controlTargetX();
+        float dx = target - paddleX_;
+        const float deadband = 0.006f;
+        if (fabsf(dx) > deadband) {
+            float step = kPaddleSpeed * dt;
+            if (step > fabsf(dx)) step = fabsf(dx);   // land exactly on the finger
+            paddleX_ += dx > 0.0f ? step : -step;
+        }
+    }
+    float lim = asp_ - paddleHalfW();
+    if (paddleX_ > lim) paddleX_ = lim;
+    if (paddleX_ < -lim) paddleX_ = -lim;
+
+    if (ballHeld_) {
+        if (serveTimer_ > 0.0f) serveTimer_ -= dt;
+        for (auto& b : balls_) {
+            if (!b.alive) continue;
+            b.x = paddleX_;
+            b.y = kPaddleY - kPaddleHH - kBallR;
+        }
+    }
+}
+
+void Game::updateBalls(float dt) {
+    if (ballHeld_) return;
+    const float speed = ballSpeed();
+    // Substep the move so the ball can't tunnel through a brick or the
+    // paddle: a step is at most half the ball's radius.
+    int steps = (int)(speed * dt / kBallStep) + 1;
+    float sdt = dt / (float)steps;
+    const float phw = paddleHalfW();
+    const float lim = asp_ - kBallR;
+    const float top = kTopWallY + kBallR;
+    const float paddleTop = kPaddleY - kPaddleHH;
+
+    for (auto& b : balls_) {
+        if (!b.alive) continue;
+        for (int s = 0; s < steps && b.alive; s++) {
+            b.x += b.dx * speed * sdt;
+            b.y += b.dy * speed * sdt;
+
+            // Side walls and the ceiling.
+            if (b.x > lim && b.dx > 0.0f) {
+                b.x = lim; b.dx = -b.dx;
+                if (audio_ && soundEnabled_) audio_->triggerWall();
+            } else if (b.x < -lim && b.dx < 0.0f) {
+                b.x = -lim; b.dx = -b.dx;
+                if (audio_ && soundEnabled_) audio_->triggerWall();
+            }
+            if (b.y < top && b.dy < 0.0f) {
+                b.y = top; b.dy = -b.dy;
+                ensureMinDy(b.dx, b.dy);
+                if (audio_ && soundEnabled_) audio_->triggerWall();
+            }
+
+            // The paddle: only its top face, only a falling ball.
+            if (b.dy > 0.0f && b.y + kBallR >= paddleTop &&
+                b.y - kBallR <= kPaddleY + kPaddleHH &&
+                fabsf(b.x - paddleX_) <= phw + kBallR) {
+                b.y = paddleTop - kBallR;
+                bounceOffPaddle(b);
+            }
+
+            // Bricks: reflect along the axis of least penetration and push the
+            // ball out. One brick per substep; the next substep sees the rest.
+            for (auto& br : bricks_) {
+                if (!br.alive) continue;
+                float dx = b.x - brickX(br), dy = b.y - brickY(br);
+                float px = kBrickHW + kBallR - fabsf(dx);
+                float py = kBrickHH + kBallR - fabsf(dy);
+                if (px <= 0.0f || py <= 0.0f) continue;
+                if (px < py) {
+                    b.dx = dx > 0.0f ? fabsf(b.dx) : -fabsf(b.dx);
+                    b.x += dx > 0.0f ? px : -px;
+                } else {
+                    b.dy = dy > 0.0f ? fabsf(b.dy) : -fabsf(b.dy);
+                    b.y += dy > 0.0f ? py : -py;
+                }
+                ensureMinDy(b.dx, b.dy);
+                hitBrick(br);
+                break;
+            }
+
+            // The pit.
+            if (b.y - kBallR > kPitY) b.alive = false;
+        }
+    }
+
+    bool any = false;
+    for (auto& b : balls_) if (b.alive) any = true;
+    balls_.erase(std::remove_if(balls_.begin(), balls_.end(),
+                                [](const Ball& b) { return !b.alive; }),
+                 balls_.end());
+    if (!any) loseBall();
+}
+
+void Game::updatePowerUps(float dt) {
+    if (wideTimer_ > 0.0f) {
+        wideTimer_ -= dt;
+        if (wideTimer_ <= 0.0f) {
+            wideTimer_ = 0.0f;
+            float lim = asp_ - paddleHalfW();
+            if (paddleX_ > lim) paddleX_ = lim;
+            if (paddleX_ < -lim) paddleX_ = -lim;
+        }
+    }
+    if (slowTimer_ > 0.0f) {
+        slowTimer_ -= dt;
+        if (slowTimer_ <= 0.0f) slowTimer_ = 0.0f;
+    }
+
+    const float phw = paddleHalfW();
+    for (auto& pu : powerUps_) {
+        if (!pu.alive) continue;
+        pu.y += pu.vy * dt;
+        if (pu.y > 1.1f) { pu.alive = false; continue; }
+        if (fabsf(pu.x - paddleX_) < phw + kPowerUpR &&
+            fabsf(pu.y - kPaddleY) < kPaddleHH + kPowerUpR) {
+            pu.alive = false;
+            long bonus = (long)kPowerUpScore * level_;
+            score_ += bonus;
+            bonusFlash_ = bonus;
+            bonusFlashTimer_ = 0.9f;
+            bonusFlashX_ = pu.x; bonusFlashY_ = pu.y - 0.06f;
+            applyPowerUp(pu.type);
+            if (audio_ && soundEnabled_) {
+                if (pu.type == PU_LIFE) audio_->triggerExtraLife();
+                else                    audio_->triggerPowerUp();
+            }
+        }
+    }
+    powerUps_.erase(std::remove_if(powerUps_.begin(), powerUps_.end(),
+                                   [](const PowerUp& pu) { return !pu.alive; }),
+                    powerUps_.end());
+}
+
+void Game::checkLevelClear() {
+    if (state_ != PLAYING || breakableLeft() > 0) return;
+    score_ += (long)kLevelClearScore * level_;
+    if (audio_ && soundEnabled_) audio_->triggerLevelClear();
+    balls_.clear();
+    powerUps_.clear();
+    ballHeld_ = false;
+    if (level_ >= 10) {
+        state_ = WIN; stateTimer_ = 0.0f;
+        checkHighScore();
+        return;
+    }
+    state_ = LEVEL_CLEAR;
+    stateTimer_ = 0.0f;
+}
+
 // ── Drawing ───────────────────────────────────────────────────────────────────
 
 void Game::emit(std::vector<DrawCmd>& out, int shape, float wx, float wy,
@@ -304,8 +983,8 @@ void Game::emit(std::vector<DrawCmd>& out, int shape, float wx, float wy,
     d.mtx[1] = -sy * s / asp_;
     d.mtx[2] = sx * s;
     d.mtx[3] = sy * c;
-    d.tx = wx / asp_;
-    d.ty = wy;
+    d.tx = wx / asp_ + shakeX_;
+    d.ty = wy + shakeY_;
     d.color[0] = r; d.color[1] = g; d.color[2] = b; d.color[3] = a;
     d.style = style;
     d.seed = 0.0f;
@@ -471,6 +1150,74 @@ void Game::drawBall(std::vector<DrawCmd>& out, float cx, float cy, float alpha) 
     emit(out, SHAPE_DISC, cx, cy, kBallR, kBallR, 0.0f, 1.00f, 0.97f, 0.85f, alpha);
 }
 
+// A bonus capsule: a coloured disc with a glow and a small glyph for its
+// kind — a bar (wide), a dial (slow), three dots (multi), a plus (life).
+void Game::drawPowerUp(std::vector<DrawCmd>& out, const PowerUp& pu) const {
+    const float* c = kPowerUpCol[pu.type];
+    float glow = kPowerUpR * (1.6f + 0.25f * sinf(animTime_ * 5.0f));
+    emit(out, SHAPE_DISC, pu.x, pu.y, glow, glow, 0.0f, c[0], c[1], c[2], 0.35f, (float)STYLE_GLOW);
+    emit(out, SHAPE_DISC, pu.x, pu.y, kPowerUpR, kPowerUpR, 0.0f, c[0], c[1], c[2], 1.0f);
+    const float ir = 0.04f, ig = 0.06f, ib = 0.14f;   // glyph colour: the background
+    switch (pu.type) {
+        case PU_WIDE:
+            emit(out, SHAPE_QUAD, pu.x, pu.y, 0.022f, 0.005f, 0.0f, ir, ig, ib, 1.0f);
+            break;
+        case PU_SLOW:
+            emit(out, SHAPE_DISC, pu.x, pu.y, 0.016f, 0.016f, 0.0f, ir, ig, ib, 1.0f);
+            emit(out, SHAPE_DISC, pu.x, pu.y, 0.011f, 0.011f, 0.0f, c[0], c[1], c[2], 1.0f);
+            emit(out, SHAPE_QUAD, pu.x, pu.y - 0.005f, 0.0025f, 0.006f, 0.0f, ir, ig, ib, 1.0f);
+            break;
+        case PU_MULTI:
+            emit(out, SHAPE_DISC, pu.x, pu.y - 0.010f, 0.006f, 0.006f, 0.0f, ir, ig, ib, 1.0f);
+            emit(out, SHAPE_DISC, pu.x - 0.011f, pu.y + 0.007f, 0.006f, 0.006f, 0.0f, ir, ig, ib, 1.0f);
+            emit(out, SHAPE_DISC, pu.x + 0.011f, pu.y + 0.007f, 0.006f, 0.006f, 0.0f, ir, ig, ib, 1.0f);
+            break;
+        case PU_LIFE:
+            emit(out, SHAPE_QUAD, pu.x, pu.y, 0.018f, 0.005f, 0.0f, ir, ig, ib, 1.0f);
+            emit(out, SHAPE_QUAD, pu.x, pu.y, 0.005f, 0.018f, 0.0f, ir, ig, ib, 1.0f);
+            break;
+    }
+}
+
+void Game::drawPowerUpHUD(std::vector<DrawCmd>& out) const {
+    // Left-side HUD: the timed bonuses with their remaining time as a bar.
+    float iconX = -asp_ + 0.055f;
+    float barX0 = -asp_ + 0.095f;
+    float barMaxW = 0.16f;
+    int row = 0;
+    auto timedRow = [&](float timer, float duration, const float* c) {
+        float y = -0.70f + (float)row * 0.11f;
+        float progress = timer / duration;
+        float pulse = (timer < 2.0f) ? (0.5f + 0.5f * sinf(animTime_ * 18.0f)) : 1.0f;
+        emit(out, SHAPE_DISC, iconX, y, 0.020f, 0.020f, 0.0f, c[0], c[1], c[2], pulse);
+        emit(out, SHAPE_QUAD, barX0 + barMaxW * 0.5f, y, barMaxW * 0.5f, 0.006f, 0.0f,
+             c[0] * 0.3f, c[1] * 0.3f, c[2] * 0.3f, 0.5f);
+        float fillW = barMaxW * progress;
+        if (fillW > 0.002f)
+            emit(out, SHAPE_QUAD, barX0 + fillW * 0.5f, y, fillW * 0.5f, 0.006f, 0.0f,
+                 c[0], c[1], c[2], 0.85f);
+        row++;
+    };
+    if (wideTimer_ > 0.0f) timedRow(wideTimer_, kWideDuration, kPowerUpCol[PU_WIDE]);
+    if (slowTimer_ > 0.0f) timedRow(slowTimer_, kSlowDuration, kPowerUpCol[PU_SLOW]);
+}
+
+// The touch strip below the paddle: a faint backdrop, a divider line, and a
+// steering marker under the paddle so the player knows where their finger acts.
+void Game::drawControlStrip(std::vector<DrawCmd>& out) const {
+    bool held = moveHeld();
+    float cy = (kCtrlZoneTopW + 1.0f) * 0.5f;
+    float hh = (1.0f - kCtrlZoneTopW) * 0.5f;
+    emit(out, SHAPE_QUAD, 0.0f, cy, asp_, hh, 0.0f,
+         0.30f, 0.60f, 1.00f, held ? 0.10f : 0.05f);
+    // Divider line at the strip's top edge
+    emit(out, SHAPE_QUAD, 0.0f, kCtrlZoneTopW, asp_, 0.0025f, 0.0f,
+         0.40f, 0.65f, 0.95f, 0.30f);
+    // Steering marker tracks the paddle
+    emit(out, SHAPE_QUAD, paddleX_, cy, 0.030f, 0.004f, 0.0f,
+         0.40f, 0.75f, 1.00f, held ? 0.90f : 0.40f);
+}
+
 void Game::drawGearIcon(std::vector<DrawCmd>& out, float cx, float cy, float size,
                          float r, float g, float b, float a) const {
     // Circular body
@@ -519,42 +1266,171 @@ void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
     drawText(out, "BACK", 0.0f, kSettingBackY, 0.055f, 0.85f, 0.85f, 0.92f, 1.0f);
 }
 
+// The big end-screen score keeps this height until the digit count would
+// clip at the screen sides, then shrinks to fit. drawNumber spaces digit
+// centres 0.87h apart (0.6h glyph width x 1.45) and a glyph spans 0.6h, so
+// n digits span (0.87(n-1) + 0.6)h; a 4-digit score already overflows a
+// portrait phone (~0.95 world units wide) at the full 0.30 height.
+static float endScoreHeight(int digits, float asp) {
+    const float kMaxH = 0.30f;
+    float span = 0.87f * (float)(digits - 1) + 0.60f;
+    float h = 2.0f * asp * 0.90f / span;   // fill at most 90% of the width
+    return h < kMaxH ? h : kMaxH;
+}
+
 void Game::render(std::vector<DrawCmd>& out) {
     float pulse = 0.5f + 0.5f * sinf(animTime_ * 4.0f);
-
     // The Settings overlay is drawn over whatever screen it was opened from.
-    bool titleScene = state_ == TITLE || (state_ == SETTINGS && prevState_ == TITLE);
-    if (titleScene) {
-        // The wall, dimmed under the title, with the demo ball and paddle.
-        for (auto& b : bricks_)
-            if (b.alive) drawBrick(out, b, 0.85f);
-        drawBall(out, demoBallX_, demoBallY_, 1.0f);
-        drawPaddle(out, demoPaddleX_, kPaddleY, kPaddleHW, 0.5f + 0.5f * pulse);
+    const State scene = (state_ == SETTINGS) ? prevState_ : state_;
+    const bool inRound = scene == PLAYING || scene == LEVEL_CLEAR ||
+                         scene == GAME_OVER || scene == WIN;
 
-        drawText(out, "VULKAN",   0.0f, -0.92f, 0.050f, 0.35f, 0.78f, 1.00f, 1.0f);
-        drawText(out, "BREAKOUT", 0.0f, -0.40f, 0.100f, 1.00f, 0.80f, 0.30f, 1.0f);
-    }
+    // The wall: dimmed under the title, full strength in a round.
+    float wallAlpha = (scene == TITLE) ? 0.85f : 1.0f;
+    for (auto& b : bricks_)
+        if (b.alive) drawBrick(out, b, wallAlpha);
 
     // Top wall line: the ceiling the ball bounces off, under the HUD.
     emit(out, SHAPE_QUAD, 0.0f, kTopWallY, asp_, 0.003f, 0.0f, 0.40f, 0.65f, 0.95f, 0.30f);
 
-    // Control strip backdrop and divider — phone mode only.
-    if (controlMode_ == CONTROL_STRIP && state_ != SETTINGS) {
-        float cy = (kCtrlZoneTopW + 1.0f) * 0.5f;
-        float hh = (1.0f - kCtrlZoneTopW) * 0.5f;
-        emit(out, SHAPE_QUAD, 0.0f, cy, asp_, hh, 0.0f, 0.30f, 0.60f, 1.00f, 0.05f);
-        emit(out, SHAPE_QUAD, 0.0f, kCtrlZoneTopW, asp_, 0.0025f, 0.0f, 0.40f, 0.65f, 0.95f, 0.30f);
+    if (scene == TITLE) {
+        drawBall(out, demoBallX_, demoBallY_, 1.0f);
+        drawPaddle(out, demoPaddleX_, kPaddleY, kPaddleHW, 0.5f + 0.5f * pulse);
     }
 
-    // ── Gear button — top-right corner, every state but SETTINGS (and never
-    //    on the glasses: Settings lives on the phone) ─────────────────────────
+    if (inRound) {
+        for (auto& pu : powerUps_)
+            if (pu.alive) drawPowerUp(out, pu);
+        for (auto& b : balls_)
+            if (b.alive) drawBall(out, b.x, b.y, 1.0f);
+        float paddleAlpha = (scene == GAME_OVER) ? 0.35f : 1.0f;
+        drawPaddle(out, paddleX_, kPaddleY, paddleHalfW(), paddleAlpha);
+    }
+
+    // explosion flash rings (expanding, fading, glow falloff)
+    for (auto& e : explosions_) {
+        float t = e.t / e.maxLife;                // 0→1
+        float s = e.radius * (1.0f + t * 3.0f);   // expand outward
+        float a = (1.0f - t) * 0.85f;
+        emit(out, SHAPE_DISC, e.x, e.y, s, s, 0.0f, e.cr, e.cg, e.cb, a, (float)STYLE_GLOW);
+    }
+
+    // debris fragments
+    for (auto& p : particles_) {
+        float life = 1.0f - p.t / p.maxLife;     // 1→0
+        float sz   = p.size * life;
+        emit(out, SHAPE_QUAD, p.x, p.y, sz, sz, p.rot, p.r, p.g, p.b, life);
+    }
+
+    // Bonus flash: the points just earned, fading where they were earned.
+    if (bonusFlashTimer_ > 0.0f) {
+        float alpha = bonusFlashTimer_ / 0.9f;
+        int n = numDigits(bonusFlash_);
+        float h = 0.055f, step = h * 0.60f * 1.45f;
+        drawNumber(out, bonusFlash_, bonusFlashX_ - (float)(n - 1) * step * 0.5f,
+                   bonusFlashY_, h, 1.0f, 0.85f, 0.10f, alpha);
+    }
+
+    // HUD during gameplay — drawn without screen shake so it stays readable.
+    if (scene == PLAYING || scene == LEVEL_CLEAR) {
+        ShakeOff noShake(shakeX_, shakeY_);
+
+        float h = 0.085f;
+        float w = h * 0.60f;
+        float step = w * 1.45f;
+        // score top-left
+        drawNumber(out, score_, -asp_ + 0.06f + w * 0.5f, -0.90f, h,
+                   1.0f, 1.0f, 1.0f, 1.0f);
+        // level number top-right (yellow), right-aligned — supports 2 digits at level 10
+        int nd = numDigits(level_);
+        float levelFirstCx = asp_ - 0.06f - w * 0.5f - (float)(nd - 1) * step;
+        drawNumber(out, level_, levelFirstCx, -0.90f, h,
+                   1.0f, 0.85f, 0.2f, 1.0f);
+        // lives as small paddles, top-center
+        float gap = 0.062f;
+        float startX = -(float)(lives_ - 1) * gap * 0.5f;
+        for (int i = 0; i < lives_; i++)
+            emit(out, SHAPE_QUAD, startX + (float)i * gap, -0.90f, 0.024f, 0.006f, 0.0f,
+                 0.30f, 0.72f, 0.95f, 1.0f);
+
+        drawPowerUpHUD(out);
+
+        // A served ball waits for a tap.
+        if (scene == PLAYING && ballHeld_ && serveTimer_ <= 0.0f)
+            drawText(out, "TAP TO LAUNCH", 0.0f, 0.45f, 0.040f,
+                     0.65f, 0.80f, 1.00f, 0.4f + 0.5f * pulse);
+    }
+
+    // Control strip — shake-free, active gameplay only, phone mode only (the
+    // glasses touchbar has no on-screen counterpart).
+    if (state_ == PLAYING && controlMode_ == CONTROL_STRIP) {
+        ShakeOff noShake(shakeX_, shakeY_);
+        drawControlStrip(out);
+    }
+
+    if (scene == TITLE) {
+        drawText(out, "VULKAN",   0.0f, -0.92f, 0.050f, 0.35f, 0.78f, 1.00f, 1.0f);
+        drawText(out, "BREAKOUT", 0.0f, -0.40f, 0.100f, 1.00f, 0.80f, 0.30f, 1.0f);
+
+        // High score podium (top 3, gold/silver/bronze)
+        const float hh = 0.048f, rowY[3] = {0.06f, 0.16f, 0.26f};
+        for (int i = 0; i < 3; i++) {
+            if (highScores_[i].score <= 0) break;
+            float pr = kPodiumCol[i][0], pg = kPodiumCol[i][1], pb = kPodiumCol[i][2];
+            // Rank marker: a tiny paddle in the podium colour
+            emit(out, SHAPE_QUAD, -asp_ * 0.72f, rowY[i], 0.024f, 0.006f, 0.0f, pr, pg, pb, 1.0f);
+            // Score
+            drawNumber(out, highScores_[i].score, -asp_ * 0.50f, rowY[i], hh, pr, pg, pb, 1.0f);
+            // Level digit (right-aligned)
+            drawNumber(out, highScores_[i].level, asp_ * 0.62f, rowY[i], hh, pr, pg, pb, 0.80f);
+        }
+
+        drawText(out, "TAP TO PLAY", 0.0f, 0.44f, 0.040f, 0.65f, 0.80f, 1.00f, 0.4f + 0.5f * pulse);
+    } else if (scene == LEVEL_CLEAR) {
+        // big green level number just cleared
+        drawText(out, "LEVEL", 0.0f, -0.28f, 0.075f, 0.4f, 1.0f, 0.5f, 1.0f);
+        drawNumber(out, level_, 0.0f, -0.02f, 0.42f, 0.4f, 1.0f, 0.5f, 1.0f);
+    } else if (scene == GAME_OVER) {
+        const float tint[4] = {0.6f, 0.05f, 0.08f, 0.32f + 0.10f * pulse};
+        drawEndScreen(out, "GAME OVER", pulse, tint, 0.75f + 0.20f * pulse, 0.10f, 1.0f, 1.0f);
+    } else if (scene == WIN) {
+        const float tint[4] = {0.1f, 0.5f, 0.15f, 0.30f + 0.10f * pulse};
+        drawEndScreen(out, "YOU WIN", pulse, tint, 0.80f + 0.15f * pulse, 0.10f, 0.9f, 0.3f);
+    }
+
+    // ── Gear button — shake-free, top-right corner, every state but SETTINGS
+    //    (and never on the glasses: Settings lives on the phone) ────────────
     if (state_ != SETTINGS && controlMode_ == CONTROL_STRIP) {
+        ShakeOff noShake(shakeX_, shakeY_);
         float gearA = 0.55f + 0.12f * sinf(animTime_ * 2.0f);
         drawGearIcon(out, asp_ - kGearOffsetX, kGearWY, 0.046f, 0.55f, 0.62f, 0.78f, gearA);
     }
 
     // ── Settings overlay — drawn last so it covers everything ────────────────
-    if (state_ == SETTINGS) drawSettingsScreen(out);
+    if (state_ == SETTINGS) {
+        ShakeOff noShake(shakeX_, shakeY_);
+        drawSettingsScreen(out);
+    }
+}
+
+void Game::drawEndScreen(std::vector<DrawCmd>& out, const char* title, float pulse,
+                         const float tint[4], float scoreG, float scoreB,
+                         float plainG, float plainB) const {
+    emit(out, SHAPE_QUAD, 0.0f, 0.0f, asp_, 1.0f, 0.0f, tint[0], tint[1], tint[2], tint[3]);
+    int n = numDigits(score_);
+    float fh = endScoreHeight(n, asp_), fw = fh * 0.6f * 1.45f;
+    float firstCx = -(float)(n - 1) * fw * 0.5f;
+    // Gold pulsing score if new high score, plain otherwise
+    float sg = newHighScore_ ? scoreG : plainG, sb = newHighScore_ ? scoreB : plainB;
+    drawNumber(out, score_, firstCx, -0.05f, fh, 1.0f, sg, sb, 1.0f);
+    // Rank digit above score when it's a new high score
+    if (newHighScore_ && newHighScoreRank_ >= 0 && newHighScoreRank_ < 3) {
+        int ri = newHighScoreRank_;
+        drawDigit(out, ri + 1, 0.0f, -0.42f, 0.14f,
+                  kPodiumCol[ri][0], kPodiumCol[ri][1], kPodiumCol[ri][2],
+                  0.65f + 0.35f * pulse);
+    }
+    drawText(out, title, 0.0f, 0.30f, 0.070f, 1.0f, 1.0f, 1.0f, 0.5f + 0.5f * pulse);
 }
 
 void Game::clearColor(float out[3]) const {
