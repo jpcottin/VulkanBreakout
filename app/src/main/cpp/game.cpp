@@ -106,6 +106,7 @@ static constexpr float kGearWY      = -0.82f;   // y in world space (top area)
 // Settings row y-positions — shared between drawSettingsScreen() and the tap handler.
 static constexpr float kSettingSoundY    = -0.15f;
 static constexpr float kSettingAutoPlayY =  0.10f;
+static constexpr float kSettingGlassesY  =  0.35f;
 static constexpr float kSettingBackY     =  0.66f;
 
 static const uint32_t kSettingsMagic = 0x53455454u;  // "SETT"
@@ -774,6 +775,10 @@ void Game::update(float dt) {
             break;
         }
         case PLAYING: {
+            // While the game runs on the glasses, the phone instance freezes
+            // (Settings stays reachable via the gear to bring it back).
+            if (glassesActive_ && controlMode_ == CONTROL_STRIP) break;
+
             // One frame of gameplay, in order. State may flip to GAME_OVER
             // (last ball lost) or LEVEL_CLEAR / WIN mid-sequence; once it
             // does, the remaining steps are skipped — checkHighScore() has
@@ -825,6 +830,13 @@ void Game::update(float dt) {
                 } else if (fabsf(wy - kSettingAutoPlayY) < kHitH && fabsf(wx) < kHitW) {
                     autoPlayActive_ = !autoPlayActive_;
                     saveSettings();
+                } else if (fabsf(wy - kSettingGlassesY) < kHitH && fabsf(wx) < kHitW) {
+                    if (glassesActive_) {
+                        if (glassesExit_) glassesExit_();
+                    } else if (glassesConnected_) {
+                        if (glassesLaunch_) glassesLaunch_();
+                    }
+                    // Not connected: the row is informational only.
                 } else if (fabsf(wy - kSettingBackY) < kHitH && fabsf(wx) < 0.15f) {
                     onPointersCancel();
                     state_ = prevState_;
@@ -1508,13 +1520,15 @@ void Game::drawPowerUp(std::vector<DrawCmd>& out, const PowerUp& pu) const {
 }
 
 void Game::drawPowerUpHUD(std::vector<DrawCmd>& out) const {
-    // Left-side HUD: the timed bonuses with their remaining time as a bar.
+    // The timed bonuses with their remaining time as a bar, at the left of
+    // the control strip: the only part of the screen the wall, the ball and
+    // the capsules never reach.
     float iconX = -asp_ + 0.055f;
     float barX0 = -asp_ + 0.095f;
     float barMaxW = 0.16f;
     int row = 0;
     auto timedRow = [&](float timer, float duration, const float* c) {
-        float y = -0.70f + (float)row * 0.11f;
+        float y = 0.76f + (float)row * 0.06f;
         float progress = timer / duration;
         float pulse = (timer < 2.0f) ? (0.5f + 0.5f * sinf(animTime_ * 18.0f)) : 1.0f;
         emit(out, SHAPE_DISC, iconX, y, 0.020f, 0.020f, 0.0f, c[0], c[1], c[2], pulse);
@@ -1569,6 +1583,35 @@ void Game::drawGearIcon(std::vector<DrawCmd>& out, float cx, float cy, float siz
          0.03f, 0.04f, 0.09f, a);
 }
 
+// A pair of glasses: two lens rings joined by a bridge, with short temples.
+void Game::drawGlassesIcon(std::vector<DrawCmd>& out, float cx, float cy, float size,
+                           float r, float g, float b, float a) const {
+    const float lensR  = size * 0.55f;
+    const float lensDX = size * 0.72f;
+    for (int s = -1; s <= 1; s += 2) {
+        emit(out, SHAPE_DISC, cx + (float)s * lensDX, cy, lensR, lensR, 0.0f, r, g, b, a);
+        emit(out, SHAPE_DISC, cx + (float)s * lensDX, cy, lensR * 0.62f, lensR * 0.62f, 0.0f,
+             0.04f, 0.06f, 0.14f, a);   // punch the lens hole in overlay colour
+    }
+    // Bridge
+    emit(out, SHAPE_QUAD, cx, cy - lensR * 0.35f, lensDX - lensR * 0.8f, size * 0.10f,
+         0.0f, r, g, b, a);
+    // Temples
+    for (int s = -1; s <= 1; s += 2)
+        emit(out, SHAPE_QUAD, cx + (float)s * (lensDX + lensR * 1.15f), cy - lensR * 0.25f,
+             lensR * 0.55f, size * 0.09f, 0.0f, r, g, b, a);
+}
+
+// Phone-side banner while the game runs on the glasses.
+void Game::drawOnGlassesOverlay(std::vector<DrawCmd>& out) const {
+    emit(out, SHAPE_QUAD, 0.0f, 0.0f, asp_, 1.0f, 0.0f, 0.03f, 0.05f, 0.12f, 0.80f);
+    float pulse = 0.6f + 0.4f * sinf(animTime_ * 3.0f);
+    drawGlassesIcon(out, 0.0f, -0.22f, 0.10f, 0.35f, 0.95f, 0.55f, pulse);
+    drawText(out, "ON GLASSES", 0.0f, 0.0f, 0.070f, 0.35f, 0.95f, 0.55f, 1.0f);
+    drawText(out, "OPEN SETTINGS", 0.0f, 0.16f, 0.038f, 0.65f, 0.72f, 0.85f, 0.9f);
+    drawText(out, "TO PLAY ON PHONE", 0.0f, 0.24f, 0.038f, 0.65f, 0.72f, 0.85f, 0.9f);
+}
+
 void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
     // Full-screen dark overlay
     emit(out, SHAPE_QUAD, 0.0f, 0.0f, asp_, 1.0f, 0.0f, 0.04f, 0.06f, 0.14f, 0.93f);
@@ -1599,6 +1642,37 @@ void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
              autoPlayActive_ ? 0.35f : 0.65f,
              autoPlayActive_ ? 1.00f : 0.45f,
              autoPlayActive_ ? 0.35f : 0.45f, 1.0f);
+
+    // Glasses row — same label + chip pattern as the toggles above. The chip
+    // is the action: PLAY hands the game to the glasses, PHONE brings it
+    // back, NONE means nothing is paired. Short chip words fit every screen
+    // width (free-form text would collide with the icon on narrow folds).
+    const char* chip;
+    float gr, gg, gb, ga;          // icon + chip text colour
+    float br, bg, bb, ba;          // chip background
+    if (glassesActive_) {
+        chip = "PHONE";
+        gr = 1.00f; gg = 0.85f; gb = 0.20f; ga = 1.0f;
+        br = 0.40f; bg = 0.32f; bb = 0.05f; ba = 0.75f;
+    } else if (glassesConnected_) {
+        chip = "PLAY";
+        gr = 0.35f; gg = 1.00f; gb = 0.55f; ga = 1.0f;
+        br = 0.08f; bg = 0.48f; bb = 0.08f; ba = 0.75f;
+    } else {
+        chip = "NONE";
+        gr = 0.55f; gg = 0.58f; gb = 0.65f; ga = 0.7f;
+        br = 0.20f; bg = 0.20f; bb = 0.22f; ba = 0.60f;
+    }
+    drawText(out, "GLASSES", labelX, kSettingGlassesY, 0.055f, 0.80f, 0.85f, 0.90f, 0.9f);
+    // Small glasses icon centred in whatever gap the screen width leaves
+    // between the label and the chip (narrow folds leave very little).
+    const float labelHalf = 7 * 0.055f * 0.95f * 0.5f;
+    const float gapLeft   = labelX + labelHalf;
+    const float gapRight  = toggleX - 0.105f;
+    drawGlassesIcon(out, (gapLeft + gapRight) * 0.5f, kSettingGlassesY, 0.030f,
+                    gr, gg, gb, ga);
+    emit(out, SHAPE_QUAD, toggleX, kSettingGlassesY, 0.100f, 0.040f, 0.0f, br, bg, bb, ba);
+    drawText(out, chip, toggleX, kSettingGlassesY, 0.040f, gr, gg, gb, 1.0f);
 
     // Back button
     emit(out, SHAPE_QUAD, 0.0f, kSettingBackY, 0.12f, 0.052f, 0.0f, 0.22f, 0.22f, 0.25f, 0.82f);
@@ -1747,6 +1821,13 @@ void Game::render(std::vector<DrawCmd>& out) {
     } else if (scene == WIN) {
         const float tint[4] = {0.1f, 0.5f, 0.15f, 0.30f + 0.10f * pulse};
         drawEndScreen(out, "YOU WIN", pulse, tint, 0.80f + 0.15f * pulse, 0.10f, 0.9f, 0.3f);
+    }
+
+    // ── "On glasses" banner — phone instance only, under the gear so
+    //    Settings stays reachable to bring the game back ────────────────────
+    if (glassesActive_ && controlMode_ == CONTROL_STRIP && state_ != SETTINGS) {
+        ShakeOff noShake(shakeX_, shakeY_);
+        drawOnGlassesOverlay(out);
     }
 
     // ── Gear button — shake-free, top-right corner, every state but SETTINGS

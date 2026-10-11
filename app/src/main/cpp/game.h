@@ -196,6 +196,9 @@ private:
     void drawControlStrip(std::vector<DrawCmd>& out) const;
     void drawGearIcon(std::vector<DrawCmd>& out, float cx, float cy, float size,
                       float r, float g, float b, float a) const;
+    void drawGlassesIcon(std::vector<DrawCmd>& out, float cx, float cy, float size,
+                         float r, float g, float b, float a) const;
+    void drawOnGlassesOverlay(std::vector<DrawCmd>& out) const;
     void drawSettingsScreen(std::vector<DrawCmd>& out) const;
     // GAME_OVER / WIN share one layout: tinted overlay, big score, rank digit.
     void drawEndScreen(std::vector<DrawCmd>& out, const char* title, float pulse,

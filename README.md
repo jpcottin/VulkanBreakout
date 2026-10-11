@@ -34,8 +34,13 @@ coloured bricks, across ten increasingly difficult levels. Sibling project of
 hand-written renderer, procedural audio engine, AI-Glasses bridge and CI
 architecture, with a brand-new game on top.
 
-> **Status:** engine, gameplay, the Auto Play autopilot, build, tests and CI
-> are in. The AI-Glasses mode lands in the next pull request.
+## Screenshots
+
+Captured on an Android emulator (API 36, x86_64).
+
+| Title | A round, ball served |
+|:---:|:---:|
+| <img src="docs/screenshots/title.png" width="360" alt="Title screen with the demo wall, the bouncing ball and the paddle"> | <img src="docs/screenshots/gameplay.png" width="360" alt="Level 1 with the ball resting on the paddle and the TAP TO LAUNCH hint"> |
 
 ## Gameplay
 
@@ -79,7 +84,8 @@ architecture, with a brand-new game on top.
   balls costs nothing. The game ends when the last ball is lost.
 - **Level clear:** +100 pts ×level. Clearing level 10 wins the game.
 - **HUD:** score (top-left) · balls left as mini paddles (top-center) · level
-  (top-right) · active bonuses with timer bars (left edge).
+  (top-right) · active bonuses with timer bars at the left of the control
+  strip, the one place the wall, the ball and the capsules never reach.
 - **High scores:** top-5 leaderboard persisted locally; gold/silver/bronze
   podium on the title screen; gold pulsing score + rank medal on game over
   when a new record is set.
@@ -111,6 +117,12 @@ architecture, with a brand-new game on top.
   from Settings; the gear turns green with a pulsing "AUTO" label while
   active. Every change to it is measured with the
   [Auto Play bench](#auto-play-bench-host-build).
+- **Play on AI Glasses:** with Display Glasses paired, Settings shows a
+  glasses row — *PLAY* hands the whole game to the glasses' projected
+  display, where the **touchbar** drives it: finger position steers the
+  paddle, contact launches the ball. The phone shows an "ON GLASSES" banner
+  and throttles itself; *PHONE* (in Settings) brings the game home. With
+  nothing paired the row reads *NONE*.
 - **Resumes after process death:** level, score and lives are saved with the
   activity state; the wall comes back fresh.
 
@@ -145,10 +157,19 @@ architecture, with a brand-new game on top.
   pairing and to launch `GlassesGameActivity` — a second `NativeActivity`
   declared with `requiredDisplayCategory="xr_projected"` — onto that display.
   The native side calls the bridge over JNI and detects its role from the
-  activity class: on the glasses the clear colour is pure black (transparent
-  on additive AR lenses), the swapchain is low-latency (minimal image count,
-  one frame in flight, MAILBOX present when available) and the game renders
-  into a centered quarter-size viewport.
+  activity class, and switches the same game to touchbar controls with a
+  pure-black clear (black = transparent on additive AR lenses). Phone and
+  glasses instances coordinate through one process-wide session flag; the
+  phone freezes and sleep-throttles while the glasses play so the projected
+  display's encoder gets the GPU. The projected display is a 30 Hz panel, so
+  the glasses instance uses a **low-latency swapchain** (minimal image count,
+  one frame in flight, MAILBOX present when available, loop paced to ~60 fps)
+  and renders into a **centered quarter-size viewport** (a floating window on
+  the lenses, 4× fewer pixels to rasterise; draw commands are NDC-based so
+  nothing else changes). Emulator tips: input must target the projected
+  display — `adb shell input -d <displayId> tap x y` — taps on the glasses
+  AVD's own window are not forwarded, and the projection tears down when the
+  glasses AVD sleeps (wake it to re-pair).
 - **Runtime diagnostics via Logcat** — every launch logs a full Vulkan
   extension audit (`✓ USED` / `~ PRESENT` / `✗ ABSENT` / `? UNKNOWN`) for
   instance and device extensions, and a periodic FPS line (frames/s, average
@@ -175,7 +196,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-95 tests covering the wall (columns follow the screen width, the lane cap on
+104 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -201,7 +222,10 @@ bonus but always for a life, saving the ball that comes down first,
 replanning on a bounce, a clean level-one clear on four seeds, multi-ball,
 the lane on a wide screen), the settings state machine (gear tap from title
 and in play, freeze under the overlay, toggles, back button, persistence,
-reload), the AI-Glasses plumbing and render coverage of every reachable state.
+reload), the AI-Glasses integration (touchbar steer and launch from
+anywhere, strip-mode isolation, no gear on glasses, pure-black clear,
+settings row launch/inert/exit behaviour, phone gameplay freeze and banner
+during a glasses session) and render coverage of every reachable state.
 
 They build and run on the host in a few seconds — no device, no emulator:
 
@@ -276,7 +300,7 @@ reports its findings without ever blocking a PR.
 |-----|-------------|-----------|
 | **Build APK** | Compiles the debug APK | `debug-apk` |
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
-| **Native Tests** | Runs the same 95 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
+| **Native Tests** | Runs the same 104 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Auto Play bench** | Builds `game.cpp` on the host and plays 100 portrait and 50 landscape seeded campaigns with the autopilot; fails when fewer than 95% are won | — |
 | **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators and captures an in-game screenshot via `UiAutomation`. The test asserts the activity is RESUMED **and** that the renderer logged `First frame presented`, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0 and 37.1 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*` |

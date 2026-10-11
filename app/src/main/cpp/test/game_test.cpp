@@ -1234,6 +1234,102 @@ TEST(AutoPlay, PlaysTheLaneOnAWideScreen) {
 
 // ── AI Glasses plumbing ──────────────────────────────────────────────────────
 
+TEST(Glasses, TouchbarSteersFromAnywhere) {
+    Game g;
+    startPlaying(g);
+    g.setControlMode(Game::CONTROL_TOUCHBAR);
+    // Mid-screen touch — ignored by the phone strip, but the whole surface is
+    // the touchbar on the glasses.
+    g.onPointerDown(0, pxOf(0.25f), kH * 0.4f);
+    step(g, 0.4f);
+    EXPECT_GT(g.paddleX(), 0.05f);
+}
+
+TEST(Glasses, TouchbarContactLaunchesTheBall) {
+    Game g;
+    startPlaying(g);
+    g.setControlMode(Game::CONTROL_TOUCHBAR);
+    step(g, 0.6f);
+    g.onPointerDown(0, pxOf(0.0f), kH * 0.4f);
+    g.update(1.0f / 60.0f);
+    EXPECT_FALSE(g.ballHeldForTest());
+}
+
+TEST(Glasses, StripModeStillIgnoresMidScreenTouch) {
+    Game g;
+    startPlaying(g);
+    g.onPointerDown(0, pxOf(0.25f), kH * 0.4f);
+    step(g, 0.4f);
+    EXPECT_FLOAT_EQ(g.paddleX(), 0.0f);
+}
+
+TEST(Glasses, SettingsRowLaunchesWhenConnected) {
+    Game g;
+    g.setViewport(kW, kH);
+    bool launched = false;
+    g.setGlassesLaunchCallback([&]() { launched = true; return true; });
+    g.setGlassesConnected(true);
+    openSettings(g);
+    ASSERT_TRUE(g.inSettingsForTest());
+    tap(g, pxOf(0.0f), pyOf(0.35f));                 // glasses row
+    g.update(0.016f);
+    EXPECT_TRUE(launched);
+}
+
+TEST(Glasses, SettingsRowInertWhenNotConnected) {
+    Game g;
+    g.setViewport(kW, kH);
+    bool launched = false;
+    g.setGlassesLaunchCallback([&]() { launched = true; return true; });
+    g.setGlassesConnected(false);
+    openSettings(g);
+    tap(g, pxOf(0.0f), pyOf(0.35f));
+    g.update(0.016f);
+    EXPECT_FALSE(launched);
+    EXPECT_TRUE(g.inSettingsForTest());              // stayed put, no crash
+}
+
+TEST(Glasses, SettingsRowExitsWhenActive) {
+    Game g;
+    g.setViewport(kW, kH);
+    bool exited = false;
+    g.setGlassesExitCallback([&]() { exited = true; });
+    g.setGlassesConnected(true);
+    g.setGlassesActive(true);
+    openSettings(g);
+    tap(g, pxOf(0.0f), pyOf(0.35f));
+    g.update(0.016f);
+    EXPECT_TRUE(exited);
+}
+
+TEST(Glasses, PhoneGameplayFreezesWhileOnGlasses) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.0f, 0.0f, 0.0f, -1.0f);
+    g.spawnTestPowerUp(0.3f, 0.0f, (int)Game::PU_WIDE);
+    g.setGlassesActive(true);
+    float y = g.ballYForTest(0);
+    long score0 = g.score();
+    step(g, 1.0f);
+    EXPECT_FLOAT_EQ(g.ballYForTest(0), y);           // ball frozen mid-air
+    EXPECT_EQ(g.powerUpCountForTest(), 1);           // capsule frozen too
+    EXPECT_EQ(g.score(), score0);
+    // Hand the game back: everything moves again.
+    g.setGlassesActive(false);
+    step(g, 1.0f);
+    EXPECT_NE(g.ballYForTest(0), y);
+}
+
+TEST(Glasses, PhoneBannerDrawsOnlyWhileActive) {
+    Game idle;   startPlaying(idle);
+    Game active; startPlaying(active);
+    active.setGlassesActive(true);
+    std::vector<DrawCmd> a, b;
+    idle.render(a);
+    active.render(b);
+    EXPECT_GT(b.size(), a.size());                   // the ON GLASSES banner
+}
+
 TEST(Glasses, NoGearOnTheGlasses) {
     Game g;
     g.setViewport(kW, kH);
@@ -1351,6 +1447,24 @@ TEST(Render, EndScreenScoreFitsTheScreen) {
         float ext = fabsf(c.mtx[0]) + fabsf(c.mtx[1]);   // NDC half-width
         EXPECT_LE(fabsf(c.tx) + ext, 1.05f)
             << "quad past the screen edge at tx=" << c.tx;
+    }
+}
+
+TEST(Render, SettingsRowsDrawInEveryGlassesState) {
+    for (int mode = 0; mode < 3; mode++) {
+        Game g;
+        g.setViewport(kW, kH);
+        if (mode >= 1) g.setGlassesConnected(true);
+        if (mode == 2) g.setGlassesActive(true);
+        openSettings(g);
+        ASSERT_TRUE(g.inSettingsForTest());
+        std::vector<DrawCmd> cmds;
+        g.render(cmds);
+        EXPECT_GT(cmds.size(), 0u);
+        for (const auto& c : cmds) {
+            float ext = fabsf(c.mtx[0]) + fabsf(c.mtx[1]);
+            EXPECT_LE(fabsf(c.tx) + ext, 1.05f) << "mode " << mode << " shape past the edge";
+        }
     }
 }
 
