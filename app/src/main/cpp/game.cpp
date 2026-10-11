@@ -1618,11 +1618,24 @@ void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
 
     drawText(out, "SETTINGS", 0.0f, -0.52f, 0.078f, 0.55f, 0.78f, 1.00f, 1.0f);
 
-    const float labelX  = -asp_ * 0.48f;
-    const float toggleX =  asp_ * 0.45f;
+    // Row labels are left-aligned at one margin: centred labels of different
+    // lengths put the longest one ("AUTO PLAY") flush with the screen edge on
+    // a portrait phone.
+    const float labelH    = 0.055f;
+    const float labelLeft = -asp_ * 0.92f;
+    const float toggleX   =  asp_ * 0.45f;
+    auto labelWidth = [&](const char* text) {
+        int n = 0;
+        for (const char* p = text; *p; p++) n++;
+        return (float)(n - 1) * labelH * 0.95f + labelH * 0.76f;   // glyph pitch + one glyph
+    };
+    auto label = [&](const char* text, float y) {
+        drawText(out, text, labelLeft + labelWidth(text) * 0.5f, y, labelH,
+                 0.80f, 0.85f, 0.90f, 0.9f);
+    };
 
     // Sound row
-    drawText(out, "SOUND", labelX, kSettingSoundY, 0.055f, 0.80f, 0.85f, 0.90f, 0.9f);
+    label("SOUND", kSettingSoundY);
     emit(out, SHAPE_QUAD, toggleX, kSettingSoundY, 0.090f, 0.040f, 0.0f,
          soundEnabled_ ? 0.08f : 0.20f,
          soundEnabled_ ? 0.48f : 0.18f,
@@ -1633,7 +1646,7 @@ void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
              soundEnabled_ ? 0.35f : 0.45f, 1.0f);
 
     // Auto Play row
-    drawText(out, "AUTO PLAY", labelX, kSettingAutoPlayY, 0.055f, 0.80f, 0.85f, 0.90f, 0.9f);
+    label("AUTO PLAY", kSettingAutoPlayY);
     emit(out, SHAPE_QUAD, toggleX, kSettingAutoPlayY, 0.090f, 0.040f, 0.0f,
          autoPlayActive_ ? 0.08f : 0.20f,
          autoPlayActive_ ? 0.48f : 0.18f,
@@ -1663,11 +1676,10 @@ void Game::drawSettingsScreen(std::vector<DrawCmd>& out) const {
         gr = 0.55f; gg = 0.58f; gb = 0.65f; ga = 0.7f;
         br = 0.20f; bg = 0.20f; bb = 0.22f; ba = 0.60f;
     }
-    drawText(out, "GLASSES", labelX, kSettingGlassesY, 0.055f, 0.80f, 0.85f, 0.90f, 0.9f);
+    label("GLASSES", kSettingGlassesY);
     // Small glasses icon centred in whatever gap the screen width leaves
     // between the label and the chip (narrow folds leave very little).
-    const float labelHalf = 7 * 0.055f * 0.95f * 0.5f;
-    const float gapLeft   = labelX + labelHalf;
+    const float gapLeft   = labelLeft + labelWidth("GLASSES");
     const float gapRight  = toggleX - 0.105f;
     drawGlassesIcon(out, (gapLeft + gapRight) * 0.5f, kSettingGlassesY, 0.030f,
                     gr, gg, gb, ga);
