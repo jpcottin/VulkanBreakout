@@ -3,7 +3,7 @@
 [![CI](https://github.com/jpcottin/VulkanBreakout/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jpcottin/VulkanBreakout/actions/workflows/ci.yml)
 
 <details>
-<summary><b>CI details</b> — host tests, native tests + smoke matrix, API 34 → 37.1, plus Android CLI and Emulator Preview legs</summary>
+<summary><b>CI details</b> — host tests, native tests + smoke matrix, API 34 → 37.2, plus Android CLI and Emulator Preview legs</summary>
 
 | Legs | Image | Emulator channel | GPU | Gating |
 |---|---|---|---|---|
@@ -14,6 +14,7 @@
 | Smoke: API 37.0 | `google_apis_ps16k` (16 KB page size) | stable | lavapipe | non-blocking |
 | Smoke: API 37.0 | `google_apis_ps16k` | canary (`--channel=3`) | lavapipe, auto | non-blocking |
 | Smoke: API 37.1 | `google_apis_ps16k` | canary | lavapipe, auto | non-blocking |
+| Smoke: API 37.2 | `google_apis_ps16k` | canary | lavapipe, auto | non-blocking |
 | Android CLI experiment | `google_apis_ps16k` 37.0 | canary | emulator default | non-blocking |
 | Emulator Preview (`emulators;latest`) | `google_apis_ps16k` 37.0 | preview package | auto | non-blocking |
 | Emulator Preview multi-run (snapshots) | `google_apis_ps16k` 37.0 | preview package | auto | non-blocking |
@@ -307,7 +308,7 @@ reports its findings without ever blocking a PR.
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
 | **Native Tests** | Runs the same 104 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Auto Play bench** | Builds `game.cpp` on the host and plays 100 portrait and 50 landscape seeded campaigns with the autopilot; fails when fewer than 95% are won | — |
-| **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators and captures an in-game screenshot via `UiAutomation`. The test asserts the activity is RESUMED **and** that the renderer logged `First frame presented`, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0 and 37.1 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
+| **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators and captures an in-game screenshot via `UiAutomation`. The test asserts the activity is RESUMED **and** that the renderer logged `First frame presented`, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0, 37.1 and 37.2 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*` |
 | **Emulator Preview** | Boots the Android Emulator Preview package (`emulators;latest`, which installs alongside the stable emulator under `emulators/latest/`) and runs the instrumented test against it | `preview-smoke-*` |
 | **Emulator Preview multi-run** | Four boot cycles against the same AVD with quickboot snapshots enabled: each cycle plays the game briefly, screenshots it, then shuts down so the emulator saves its snapshot. Checks whether a live Vulkan app survives snapshot save/restore | `preview-multirun-screenshots`, `preview-multirun-emulator-logs` |
