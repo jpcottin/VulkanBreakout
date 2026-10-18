@@ -5,6 +5,7 @@
 
 // android/log.h is available on-device; the test binary links liblog.
 #include "game.h"
+#include "audio.h"
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1477,3 +1478,77 @@ TEST(Render, GlassesModeDrawsNoGearAndNoStrip) {
     glasses.render(b);
     EXPECT_LT(b.size(), a.size());                     // gear + strip are missing
 }
+
+// ── Music ─────────────────────────────────────────────────────────────────────
+// The stub audio engine records the last music flag the game pushed.
+
+extern bool g_stubMusicEnabled;
+extern int  g_stubMusicCalls;
+
+TEST(Music, SilentOnTheTitleAndPlayingInARound) {
+    AudioEngine audio;
+    Game g;
+    g.setViewport(kW, kH);
+    g.setAudioEngine(&audio);
+    EXPECT_FALSE(g_stubMusicEnabled);          // TITLE
+    startPlaying(g);
+    EXPECT_TRUE(g_stubMusicEnabled);           // PLAYING
+}
+
+TEST(Music, KeepsPlayingUnderSettingsOpenedFromARound) {
+    AudioEngine audio;
+    Game g;
+    startPlaying(g);
+    g.setAudioEngine(&audio);
+    openSettings(g);
+    ASSERT_TRUE(g.inSettingsForTest());
+    EXPECT_TRUE(g_stubMusicEnabled);
+}
+
+TEST(Music, StopsWhenSoundIsTurnedOff) {
+    AudioEngine audio;
+    Game g;
+    startPlaying(g);
+    g.setAudioEngine(&audio);
+    openSettings(g);
+    tap(g, pxOf(0.0f), pyOf(-0.15f));           // sound row
+    g.update(0.016f);
+    ASSERT_FALSE(g.soundEnabledForTest());
+    EXPECT_FALSE(g_stubMusicEnabled);
+    tap(g, pxOf(0.0f), pyOf(-0.15f));
+    g.update(0.016f);
+    ASSERT_TRUE(g.soundEnabledForTest());
+    EXPECT_TRUE(g_stubMusicEnabled);
+}
+
+TEST(Music, StopsOnThePhoneWhileTheGlassesPlay) {
+    AudioEngine audio;
+    Game g;
+    startPlaying(g);
+    g.setAudioEngine(&audio);
+    ASSERT_TRUE(g_stubMusicEnabled);
+    g.setGlassesActive(true);                   // strip control: the phone handed the round off
+    EXPECT_FALSE(g_stubMusicEnabled);
+    g.setGlassesActive(false);
+    EXPECT_TRUE(g_stubMusicEnabled);
+}
+
+TEST(Music, TheGlassesInstanceKeepsItsMusic) {
+    AudioEngine audio;
+    Game g;
+    g.setViewport(kW, kH);
+    g.setControlMode(Game::CONTROL_TOUCHBAR);   // the glasses instance itself
+    g.setAudioEngine(&audio);
+    startPlaying(g);
+    g.setGlassesActive(true);
+    EXPECT_TRUE(g_stubMusicEnabled);
+}
+
+TEST(Music, NoEngineMeansNoCalls) {
+    const int before = g_stubMusicCalls;
+    Game g;
+    startPlaying(g);
+    g.setGlassesActive(true);
+    EXPECT_EQ(g_stubMusicCalls, before);
+}
+
