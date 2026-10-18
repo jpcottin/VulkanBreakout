@@ -595,7 +595,7 @@ jobs:
           if-no-files-found: warn
 
   # Experiment: snapshot save/restore of a live Vulkan game on the preview
-  # emulator. Three boot cycles WITHOUT -no-snapshot: each plays ~5s in
+  # emulator. Four boot cycles WITHOUT -no-snapshot: each plays ~5s in
   # auto-play, screenshots, then kills gracefully (adb emu kill) so the
   # emulator saves a snapshot. If restore preserves the running app, the three
   # screenshots show progressively later game stages.
