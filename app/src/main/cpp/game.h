@@ -326,6 +326,11 @@ public:
     int   ballsLostForTest()      const { return ballsLost_; }
     float demoBallXForTest()      const { return demoBallX_; }
     float demoBallYForTest()      const { return demoBallY_; }
+    float shakeForTest()          const { return shakeAmt_; }
+    long  bonusFlashForTest()     const { return bonusFlash_; }
+    float bonusFlashTimerForTest() const { return bonusFlashTimer_; }
+    float bonusFlashXForTest()    const { return bonusFlashX_; }
+    float bonusFlashYForTest()    const { return bonusFlashY_; }
 #endif
 
 private:
