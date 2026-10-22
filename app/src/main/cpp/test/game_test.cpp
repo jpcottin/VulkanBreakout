@@ -1611,3 +1611,193 @@ TEST(Music, NoEngineMeansNoCalls) {
     EXPECT_EQ(g_stubMusicCalls, before);
 }
 
+// ── Haptics ───────────────────────────────────────────────────────────────────
+// The platform layer registers a callback that buzzes the device; the game
+// fires it for a lost ball and nothing else.
+
+// Sink the ball into the pit one frame at a time, so the test sees the game
+// right after the loss.
+static void sinkABall(Game& g) {
+    const int before = g.ballsLostForTest();
+    g.setBallForTest(0.40f, 0.70f, 0.0f, 1.0f);
+    for (int i = 0; i < 120 && g.ballsLostForTest() == before; i++) g.update(1.0f / 60.0f);
+    ASSERT_EQ(g.ballsLostForTest(), before + 1);
+}
+
+TEST(Haptics, ALostBallBuzzesOnce) {
+    Game g;
+    int buzzes = 0;
+    g.setHapticCallback([&] { buzzes++; });
+    startPlaying(g);
+    EXPECT_EQ(buzzes, 0);
+    loseABall(g);
+    EXPECT_EQ(buzzes, 1);
+    loseABall(g);
+    EXPECT_EQ(buzzes, 2);
+}
+
+TEST(Haptics, TheLastLifeStillBuzzes) {
+    Game g;
+    int buzzes = 0;
+    g.setHapticCallback([&] { buzzes++; });
+    startPlaying(g);
+    g.setLivesForTest(1);
+    loseABall(g);
+    ASSERT_TRUE(g.isGameOverForTest());
+    EXPECT_EQ(buzzes, 1);
+}
+
+TEST(Haptics, BrickHitsAndPaddleBouncesDoNotBuzz) {
+    Game g;
+    int buzzes = 0;
+    g.setHapticCallback([&] { buzzes++; });
+    startPlaying(g);
+    int target = slot(g, 3, 3);
+    g.setBallForTest(g.brickXForTest(target), g.brickYForTest(target) + 0.10f, 0.0f, -1.0f);
+    step(g, 0.3f);
+    ASSERT_EQ(g.bricksBrokenForTest(), 1);
+    g.setBallForTest(0.0f, kPaddleY - 0.10f, 0.0f, 1.0f);
+    step(g, 0.3f);
+    ASSERT_EQ(g.paddleHitsForTest(), 1);
+    EXPECT_EQ(buzzes, 0);
+}
+
+// ── Idle screen ───────────────────────────────────────────────────────────────
+// The main loop throttles the frame rate on the static screens, and on the
+// phone for as long as the glasses play the round.
+
+TEST(IdleScreen, OnlyTheStaticScreensAreIdle) {
+    Game g;
+    g.setViewport(kW, kH);
+    EXPECT_TRUE(g.isIdleScreen());                 // TITLE
+    g.triggerNewGameForTest();
+    EXPECT_FALSE(g.isIdleScreen());                // PLAYING
+    openSettings(g);
+    ASSERT_TRUE(g.inSettingsForTest());
+    EXPECT_FALSE(g.isIdleScreen());                // SETTINGS over a round
+    tap(g, pxOf(0.0f), pyOf(0.66f));               // back to the round
+    g.update(0.016f);
+    ASSERT_TRUE(g.isPlayingForTest());
+    g.clearWallForTest();
+    g.update(0.016f);
+    ASSERT_TRUE(g.isLevelClearForTest());
+    EXPECT_FALSE(g.isIdleScreen());                // LEVEL_CLEAR animates
+    step(g, 2.0f);
+    ASSERT_TRUE(g.isPlayingForTest());
+    g.setLivesForTest(1);
+    loseABall(g);
+    ASSERT_TRUE(g.isGameOverForTest());
+    EXPECT_TRUE(g.isIdleScreen());                 // GAME_OVER
+}
+
+TEST(IdleScreen, TheWinScreenIsIdle) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.startLevelForTest(10);
+    g.clearWallForTest();
+    g.update(0.016f);
+    ASSERT_TRUE(g.isWinForTest());
+    EXPECT_TRUE(g.isIdleScreen());
+}
+
+TEST(IdleScreen, ThePhoneIdlesWhileTheGlassesPlayAndTheGlassesDoNot) {
+    Game phone;
+    startPlaying(phone);
+    ASSERT_FALSE(phone.isIdleScreen());
+    phone.setGlassesActive(true);                  // strip control: the round went to the glasses
+    EXPECT_TRUE(phone.isIdleScreen());
+    phone.setGlassesActive(false);
+    EXPECT_FALSE(phone.isIdleScreen());
+
+    Game glasses;
+    glasses.setViewport(kW, kH);
+    glasses.setControlMode(Game::CONTROL_TOUCHBAR);
+    glasses.triggerNewGameForTest();
+    glasses.setGlassesActive(true);
+    EXPECT_FALSE(glasses.isIdleScreen());          // the instance that renders the round
+}
+
+// ── Effects ───────────────────────────────────────────────────────────────────
+
+TEST(Effects, ALostBallShakesTheScreenThenItSettles) {
+    Game g;
+    startPlaying(g);
+    EXPECT_FLOAT_EQ(g.shakeForTest(), 0.0f);
+    sinkABall(g);
+    EXPECT_GT(g.shakeForTest(), 0.5f);             // full strength on the loss
+    step(g, 0.25f);
+    EXPECT_GT(g.shakeForTest(), 0.0f);             // still trembling
+    step(g, 1.0f);
+    EXPECT_FLOAT_EQ(g.shakeForTest(), 0.0f);       // and settled
+}
+
+TEST(Effects, ANewLevelStartsStill) {
+    Game g;
+    startPlaying(g);
+    sinkABall(g);
+    ASSERT_GT(g.shakeForTest(), 0.0f);
+    g.startLevelForTest(2);
+    EXPECT_FLOAT_EQ(g.shakeForTest(), 0.0f);
+}
+
+TEST(Effects, ACaughtCapsuleFlashesItsValueWhereItWasCaughtThenFades) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.startLevelForTest(3);
+    g.setPaddleXForTest(0.0f);
+    EXPECT_FLOAT_EQ(g.bonusFlashTimerForTest(), 0.0f);
+    g.spawnTestPowerUp(0.02f, kPaddleY, (int)Game::PU_SLOW);
+    g.update(1.0f / 60.0f);
+    ASSERT_EQ(g.powerUpCountForTest(), 0);         // caught
+    EXPECT_EQ(g.score(), 25L * 3);
+    EXPECT_EQ(g.bonusFlashForTest(), 75L);
+    EXPECT_GT(g.bonusFlashTimerForTest(), 0.0f);
+    EXPECT_NEAR(g.bonusFlashXForTest(), 0.02f, 1e-4f);
+    EXPECT_LT(g.bonusFlashYForTest(), kPaddleY);   // drawn just above the paddle
+    step(g, 1.0f);
+    EXPECT_LE(g.bonusFlashTimerForTest(), 0.0f);
+}
+
+TEST(Effects, ANewGameClearsTheFlash) {
+    Game g;
+    startPlaying(g);
+    g.setPaddleXForTest(0.0f);
+    g.spawnTestPowerUp(0.0f, kPaddleY, (int)Game::PU_WIDE);
+    g.update(1.0f / 60.0f);
+    ASSERT_GT(g.bonusFlashTimerForTest(), 0.0f);
+    g.triggerNewGameForTest();
+    EXPECT_FLOAT_EQ(g.bonusFlashTimerForTest(), 0.0f);
+}
+
+// ── Tally ─────────────────────────────────────────────────────────────────────
+
+TEST(Tally, ANewGameResetsEverything) {
+    Game g;
+    startPlaying(g);
+    int target = slot(g, 3, 3);
+    g.setBallForTest(g.brickXForTest(target), g.brickYForTest(target) + 0.10f, 0.0f, -1.0f);
+    step(g, 0.3f);
+    g.setBallForTest(0.0f, kPaddleY - 0.10f, 0.0f, 1.0f);
+    step(g, 0.3f);
+    g.setLivesForTest(1);
+    loseABall(g);
+    ASSERT_TRUE(g.isGameOverForTest());
+    ASSERT_EQ(g.bricksBrokenForTest(), 1);
+    ASSERT_EQ(g.paddleHitsForTest(), 1);
+    ASSERT_EQ(g.ballsLostForTest(), 1);
+    ASSERT_GT(g.score(), 0L);
+    step(g, 1.0f);
+    tap(g, kW * 0.5f, kH * 0.5f);                  // to the title
+    g.update(0.016f);
+    ASSERT_TRUE(g.inTitleForTest());
+    tap(g, kW * 0.5f, kH * 0.5f);                  // and into a new round
+    g.update(0.016f);
+    ASSERT_TRUE(g.isPlayingForTest());
+    EXPECT_EQ(g.level(), 1);
+    EXPECT_EQ(g.lives(), 5);
+    EXPECT_EQ(g.score(), 0L);
+    EXPECT_EQ(g.bricksBrokenForTest(), 0);
+    EXPECT_EQ(g.paddleHitsForTest(), 0);
+    EXPECT_EQ(g.ballsLostForTest(), 0);
+    EXPECT_FALSE(g.newHighScoreForTest());
+}
