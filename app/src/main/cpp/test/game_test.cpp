@@ -818,6 +818,22 @@ TEST(RestoreSession, ResumesLevelScoreAndLives) {
     EXPECT_TRUE(g.ballHeldForTest());
 }
 
+TEST(RestoreSession, LevelClearSavesTheNextLevel) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.triggerNewGameForTest();
+    EXPECT_EQ(g.saveLevel(), 1);
+    g.clearWallForTest();
+    g.update(0.016f);
+    ASSERT_TRUE(g.isLevelClearForTest());
+    ASSERT_TRUE(g.isMidGame());
+    EXPECT_EQ(g.level(), 1);
+    EXPECT_EQ(g.saveLevel(), 2);          // the wall is gone and its bonus banked
+    step(g, 2.0f);
+    ASSERT_TRUE(g.isPlayingForTest());
+    EXPECT_EQ(g.saveLevel(), 2);
+}
+
 TEST(RestoreSession, SettingsOverARoundIsStillMidGame) {
     // Backgrounded with Settings open over a round (the likeliest moment):
     // the save must still happen. Settings over the title saves nothing.

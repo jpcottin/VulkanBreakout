@@ -374,6 +374,14 @@ void Game::syncMusic() {
 // Resume a run after process death: same level, score, and lives, but a
 // fresh wall — entity positions aren't persisted. Bounds-checked because the
 // saved blob comes back from the OS, not from us.
+// The level a saved session should come back to. In LEVEL_CLEAR the wall is
+// gone and its bonus banked, so the next level is the one to restore, or the
+// player would replay the cleared wall and bank its bonus twice.
+int Game::saveLevel() const {
+    State s = (state_ == SETTINGS) ? prevState_ : state_;
+    return s == LEVEL_CLEAR ? clampLevel(level_ + 1) : level_;
+}
+
 void Game::restoreSession(int level, long score, int lives) {
     if (level < 1 || level > 10 || lives < 1 || lives > kMaxLives || score < 0) return;
     startGame();
