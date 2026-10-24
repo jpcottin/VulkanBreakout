@@ -133,7 +133,6 @@ private:
     float controlTargetX() const;
     bool  isGearTap(float px, float py) const;
     void  loadHighScores();
-    void  saveHighScores();
     // Returns the rank the entry was inserted at, or -1 when it was not
     // ranked or an identical row already exists.
     int   mergeHighScore(long score, int level);
