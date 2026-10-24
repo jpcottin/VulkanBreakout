@@ -1116,6 +1116,7 @@ void Game::makePlan(Plan& plan, const Ball& b, int ballIndex) const {
     plan.age = 0.0f;
     plan.u = 0.0f;
     const float speed = ballSpeed();
+    plan.speed = speed;
     std::vector<int> hp(bricks_.size());
     auto resetWall = [&]() {
         for (size_t i = 0; i < bricks_.size(); i++)
@@ -1219,13 +1220,16 @@ void Game::updateAutoPlay(float dt) {
         aiPlans_.clear();
     }
 
-    // Keep one plan per ball; redo a plan when its ball changed direction.
+    // Keep one plan per ball; redo a plan when its ball changed direction or
+    // speed (the slow-ball bonus wearing off mid-flight brings the landing
+    // forward with no bounce to notice it by).
     if (aiPlans_.size() != balls_.size()) aiPlans_.assign(balls_.size(), Plan());
+    const float speedNow = ballSpeed();
     for (size_t i = 0; i < balls_.size(); i++) {
         const Ball& b = balls_[i];
         Plan& p = aiPlans_[i];
         if (!b.alive || ballHeld_) { p.valid = false; continue; }
-        if (p.valid && p.dx == b.dx && p.dy == b.dy) { p.age += dt; continue; }
+        if (p.valid && p.dx == b.dx && p.dy == b.dy && p.speed == speedNow) { p.age += dt; continue; }
         makePlan(p, b, (int)i);
     }
 
