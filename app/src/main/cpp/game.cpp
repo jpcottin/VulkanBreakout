@@ -260,6 +260,7 @@ void Game::onPointerUp(int id) {
 }
 void Game::onPointersCancel() {
     for (auto& p : pointers_) p.active = false;
+    tapPending_ = false;   // a gesture the system took away was not a tap
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -752,6 +753,11 @@ void Game::update(float dt) {
         state_ = SETTINGS;
         tapped = false;
     }
+    // While the game is on the glasses the phone only shows the hand-off
+    // banner: a tap on it must not start a hidden round or dismiss an end
+    // screen nobody is looking at. Settings stays reachable (the gear tap
+    // above) and usable (its rows, including the one that hands back).
+    if (glassesActive_ && controlMode_ == CONTROL_STRIP && state_ != SETTINGS) tapped = false;
 
     switch (state_) {
         case TITLE: {

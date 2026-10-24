@@ -228,7 +228,11 @@ public:
     // Re-read highscores/settings from disk (phone <-> glasses handoff).
     void reloadFromDisk();
     // Process-death save/restore (see SavedGame in main.cpp).
-    bool isMidGame() const { return state_ == PLAYING || state_ == LEVEL_CLEAR; }
+    // Settings over a round is still that round: the save must not skip it.
+    bool isMidGame() const {
+        State s = state_ == SETTINGS ? prevState_ : state_;
+        return s == PLAYING || s == LEVEL_CLEAR;
+    }
     void restoreSession(int level, long score, int lives);
     void setHapticCallback(std::function<void()> fn) { haptic_ = std::move(fn); }
 
