@@ -22,7 +22,7 @@
 
 The Android CLI leg drives the whole flow with the [`android` CLI](https://d.android.com/tools/agents/android-cli) (`android sdk install --canary`, `android emulator create/start/stop`) instead of `sdkmanager`/`avdmanager` and the emulator-runner action.
 
-All emulator-runner legs use full diagnostics (`-verbose -show-kernel -debug-metrics -metrics-collection`) and a `cmdline-tools;latest` update so `avdmanager` writes a valid `target=android-37.x` (the runner's preinstalled version writes `android-0`, which the emulator clamps to API 3, disabling the Vulkan/GLDirectMem auto-enable the ps16k images need).
+All emulator-runner legs use full diagnostics (`-verbose -show-kernel -debug-metrics -metrics-collection`), and the smoke legs also run a `cmdline-tools;latest` update so `avdmanager` writes a valid `target=android-37.x` (the runner's preinstalled version writes `android-0`, which the emulator clamps to API 3, disabling the Vulkan/GLDirectMem auto-enable the ps16k images need).
 
 </details>
 
@@ -223,7 +223,8 @@ new game), progression (level-scaled clear bonus, in-flight wipe on clear, win a
 level 10, game over grace tap, title-return cleanup, wall rebuild on fold),
 process-death session restore (bounds-checked), high-score persistence
 (ordering, displacement, cap, cross-instance disk merge, exact-duplicate skip,
-reload-from-disk handoff, zero-score guard, tie guard), the Auto Play AI
+reload-from-disk handoff, zero-score guard, tie guard, a file with a wrong
+magic, a truncated one or an oversized count left ignored), the Auto Play AI
 (self-launch after the serve delay, landing prediction matching the real
 flight, going under the ball, catching a ball off the wall, aiming the
 rebound at the last brick, never a dead-centre plan, capsule pickup when
@@ -232,7 +233,10 @@ bonus but always for a life, saving the ball that comes down first,
 replanning on a bounce, a clean level-one clear on four seeds, multi-ball,
 the lane on a wide screen), the settings state machine (gear tap from title
 and in play, freeze under the overlay, toggles, back button, persistence,
-reload), the AI-Glasses integration (touchbar steer and launch from
+reload), the music flag (silent on the title, playing in a round, kept under
+Settings opened from a round, off with Sound, off on the phone while the
+glasses play while the glasses instance keeps its own, no engine means no
+calls), the AI-Glasses integration (touchbar steer and launch from
 anywhere, strip-mode isolation, no gear on glasses, pure-black clear,
 settings row launch/inert/exit behaviour, phone gameplay freeze and banner
 during a glasses session) and render coverage of every reachable state.
