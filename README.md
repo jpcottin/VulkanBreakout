@@ -137,7 +137,8 @@ the rounds.
 - **Pure native C++17** — Android
   [`NativeActivity`](https://developer.android.com/ndk/reference/group/native-activity)
   with `native_app_glue`; the only production JVM code is the thin AI-Glasses
-  bridge (`GlassesBridge.kt`), plus the instrumented smoke test.
+  bridge (`GlassesBridge.kt` and the `GlassesGameActivity.kt` it launches),
+  plus the instrumented smoke test.
 - **Hand-written Vulkan 1.0 2D renderer** — one graphics pipeline, one vertex
   buffer holding two shapes (a quad and a disc), per-instance transform +
   translation + RGBA + fill style, FIFO present, two frames in flight.
@@ -169,7 +170,7 @@ the rounds.
   phone freezes and sleep-throttles while the glasses play so the projected
   display's encoder gets the GPU. The projected display is a 30 Hz panel, so
   the glasses instance uses a **low-latency swapchain** (minimal image count,
-  one frame in flight, MAILBOX present when available, loop paced to ~60 fps)
+  one frame in flight, MAILBOX present when available, loop paced to ~34 fps, just above the 30 Hz panel)
   and renders into a **centered quarter-size viewport** (a floating window on
   the lenses, 4× fewer pixels to rasterise; draw commands are NDC-based so
   nothing else changes). Emulator tips: input must target the projected
@@ -202,7 +203,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-124 tests covering the wall (columns follow the screen width, the lane cap on
+127 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -309,7 +310,7 @@ reports its findings without ever blocking a PR.
 |-----|-------------|-----------|
 | **Build APK** | Compiles the debug APK | `debug-apk` |
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
-| **Native Tests** | Runs the same 124 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
+| **Native Tests** | Runs the same 127 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Auto Play bench** | Builds `game.cpp` on the host and plays 100 portrait and 50 landscape seeded campaigns with the autopilot; fails when fewer than 95% are won | — |
 | **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators. The test waits up to 60 s for the renderer to log `First frame presented`, asserts the activity is RESUMED and captures that frame with `screencap`, which the job pulls as the screenshot artifact, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0, 37.1 and 37.2 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*`; `instrumented-test-report-android-cli-experiment-*` on failure |

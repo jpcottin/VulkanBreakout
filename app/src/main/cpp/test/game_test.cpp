@@ -312,6 +312,25 @@ TEST(PaddleControl, CancelReleasesAllPointers) {
     EXPECT_FLOAT_EQ(g.paddleX(), x);
 }
 
+TEST(PaddleControl, ACancelledGestureIsNotATap) {
+    // An edge swipe the system claims arrives as a down then a cancel: it
+    // must not start a round from the title...
+    Game g;
+    g.setViewport(kW, kH);
+    g.onPointerDown(0, kW * 0.5f, kH * 0.5f);
+    g.onPointersCancel();
+    g.update(0.016f);
+    EXPECT_TRUE(g.inTitleForTest());
+    // ...nor launch a held ball once a round is on.
+    startPlaying(g);
+    step(g, 1.5f);                                   // past the serve delay
+    ASSERT_TRUE(g.ballHeldForTest());
+    g.onPointerDown(0, kW * 0.5f, kH * 0.5f);
+    g.onPointersCancel();
+    step(g, 0.1f);
+    EXPECT_TRUE(g.ballHeldForTest());
+}
+
 TEST(PaddleControl, NoTouchNoMovement) {
     Game g;
     startPlaying(g);
@@ -755,6 +774,21 @@ TEST(RestoreSession, ResumesLevelScoreAndLives) {
     EXPECT_EQ(g.lives(), 2);
     EXPECT_EQ(g.wallRowsForTest(), 6);         // level>1 ran startLevel: 6 rows at L5
     EXPECT_TRUE(g.ballHeldForTest());
+}
+
+TEST(RestoreSession, SettingsOverARoundIsStillMidGame) {
+    // Backgrounded with Settings open over a round (the likeliest moment):
+    // the save must still happen. Settings over the title saves nothing.
+    Game g;
+    startPlaying(g);
+    openSettings(g);
+    ASSERT_TRUE(g.inSettingsForTest());
+    EXPECT_TRUE(g.isMidGame());
+    Game h;
+    h.setViewport(kW, kH);
+    openSettings(h);
+    ASSERT_TRUE(h.inSettingsForTest());
+    EXPECT_FALSE(h.isMidGame());
 }
 
 TEST(RestoreSession, RejectsOutOfRangeInput) {
@@ -1235,6 +1269,21 @@ TEST(AutoPlay, PlaysTheLaneOnAWideScreen) {
 }
 
 // ── AI Glasses plumbing ──────────────────────────────────────────────────────
+
+TEST(Glasses, PhoneTitleTapIsInertWhileOnGlasses) {
+    // The phone shows the hand-off banner over its title: tapping it must not
+    // start a round nobody sees.
+    Game g;
+    g.setViewport(kW, kH);
+    g.setGlassesActive(true);
+    tap(g, kW * 0.5f, kH * 0.5f);
+    g.update(0.016f);
+    EXPECT_TRUE(g.inTitleForTest());
+    g.setGlassesActive(false);                       // handed back: taps work again
+    tap(g, kW * 0.5f, kH * 0.5f);
+    g.update(0.016f);
+    EXPECT_TRUE(g.isPlayingForTest());
+}
 
 TEST(Glasses, TouchbarSteersFromAnywhere) {
     Game g;
