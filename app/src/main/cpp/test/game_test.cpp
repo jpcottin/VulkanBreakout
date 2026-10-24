@@ -1096,6 +1096,26 @@ TEST(AutoPlay, PredictsWhereTheBallLands) {
     EXPECT_NEAR(predictedT, actualT, 0.10f);
 }
 
+TEST(AutoPlay, ReplansWhenTheBallSpeedChangesWithoutABounce) {
+    Game g;
+    startPlaying(g);
+    g.setAutoPlayForTest(true);
+    int keep = slot(g, 3, 0);
+    for (int i = 0; i < g.brickTotalForTest(); i++)
+        if (i != keep) g.killBrickForTest(i);
+    g.activatePowerUpForTest((int)Game::PU_SLOW);
+    ASSERT_TRUE(g.slowActiveForTest());
+    g.setBallForTest(-0.30f, 0.10f, 0.6f, 1.0f);  // falling to the right, nothing in the way
+    g.update(1.0f / 60.0f);
+    ASSERT_TRUE(g.aiHasLandingForTest());
+    const float slowT = g.aiLandingTForTest();
+    // The bonus wears off mid-flight: same direction, a faster ball, an earlier landing.
+    g.expireSlowForTest();
+    ASSERT_FALSE(g.slowActiveForTest());
+    g.update(1.0f / 60.0f);
+    EXPECT_LT(g.aiLandingTForTest(), slowT * 0.75f);
+}
+
 TEST(AutoPlay, GoesUnderTheBall) {
     Game g;
     startPlaying(g);

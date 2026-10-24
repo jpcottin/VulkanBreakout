@@ -165,6 +165,7 @@ private:
     struct Plan {
         bool  valid = false;
         float dx = 0.0f, dy = 0.0f;   // the direction the plan was made for
+        float speed = 0.0f;           // the ball speed it was simulated at
         Flight land;
         float u = 0.0f;               // chosen hit offset (-1..1 across the paddle)
         float age = 0.0f;             // seconds since the plan was made
@@ -313,6 +314,7 @@ public:
     void  activatePowerUpForTest(int type) { applyPowerUp((PowerUpType)type); }
     bool  wideActiveForTest()     const { return wideTimer_ > 0.0f; }
     bool  slowActiveForTest()     const { return slowTimer_ > 0.0f; }
+    void  expireSlowForTest()           { slowTimer_ = 0.0f; }
     long  highScoreForTest(int i) const { return highScores_[i].score; }
     bool  newHighScoreForTest()   const { return newHighScore_; }
     void  setScoreForTest(long s)       { score_ = s; }
