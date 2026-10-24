@@ -234,6 +234,9 @@ public:
         return s == PLAYING || s == LEVEL_CLEAR;
     }
     void restoreSession(int level, long score, int lives);
+    // The level a saved session comes back to (the next one during the
+    // level-clear interlude, whose bonus is already banked).
+    int saveLevel() const;
     void setHapticCallback(std::function<void()> fn) { haptic_ = std::move(fn); }
 
     // --- test / debug accessors ---
