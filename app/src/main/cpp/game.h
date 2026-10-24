@@ -328,6 +328,7 @@ public:
     float aiLandingTForTest()     const { return aiLanding_.t; }
     float aiPlanUForTest()        const { return aiPlanU_; }
     int   paddleHitsForTest()     const { return paddleHits_; }
+    int   aiDryHitsForTest()      const { return aiDryHits_; }
     int   bricksBrokenForTest()   const { return bricksBroken_; }
     int   ballsLostForTest()      const { return ballsLost_; }
     float demoBallXForTest()      const { return demoBallX_; }
@@ -412,6 +413,13 @@ private:
     bool  aiLaunch_  = false;
     std::vector<Plan> aiPlans_;      // one per ball, indexed like balls_
     Flight aiLanding_;               // the primary ball's landing (tests / bench)
+    // Stall breaker: paddle hits since a brick last took damage, and the
+    // offsets of the last two plans. A rebound the simulation keeps
+    // promising a hit for while the real ball keeps coming back untouched
+    // (a corner graze the step phase decides differently) is a loop the
+    // planner cannot see; after a few dry trips those offsets are barred.
+    int   aiDryHits_ = 0;
+    float aiRecentU_[2] = {2.0f, 2.0f};
     float  aiPlanU_ = 0.0f;          // its chosen hit offset
 
     // --- control mode / glasses session (not persisted) ---

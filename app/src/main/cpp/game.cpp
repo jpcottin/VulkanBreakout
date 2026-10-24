@@ -571,6 +571,7 @@ void Game::bounceOffPaddle(Ball& b) {
     b.dx =  sinf(a);
     b.dy = -cosf(a);
     paddleHits_++;
+    aiDryHits_++;
     if (audio_ && soundEnabled_) audio_->triggerPaddle();
 }
 
@@ -580,6 +581,7 @@ bool Game::hitBrick(Brick& br) {
         return false;
     }
     br.hp--;
+    aiDryHits_ = 0;
     if (br.hp > 0) {
         if (audio_ && soundEnabled_) audio_->triggerBrickHit();
         return false;
@@ -914,7 +916,7 @@ void Game::updateBalls(float dt) {
 
             // The paddle: only its top face, only a falling ball.
             if (b.dy > 0.0f && b.y + kBallR >= paddleTop &&
-                b.y - kBallR <= kPaddleY + kPaddleHH &&
+                b.y <= paddleTop &&
                 fabsf(b.x - paddleX_) <= phw + kBallR) {
                 b.y = paddleTop - kBallR;
                 bounceOffPaddle(b);
@@ -928,7 +930,15 @@ void Game::updateBalls(float dt) {
                 float px = kBrickHW + kBallR - fabsf(dx);
                 float py = kBrickHH + kBallR - fabsf(dy);
                 if (px <= 0.0f || py <= 0.0f) continue;
-                if (px < py) {
+                // The gap between the wall and the edge bricks, and between
+                // the ceiling and the top row, is narrower than the ball. A
+                // push-out that would shove the ball through a wall leaves
+                // it wedged (the wall pushes it straight back into the brick,
+                // one hit per substep): take the other face instead.
+                bool horizontal = px < py;
+                if (horizontal && fabsf(b.x + (dx > 0.0f ? px : -px)) > lim) horizontal = false;
+                else if (!horizontal && b.y + (dy > 0.0f ? py : -py) < top) horizontal = true;
+                if (horizontal) {
                     b.dx = dx > 0.0f ? fabsf(b.dx) : -fabsf(b.dx);
                     b.x += dx > 0.0f ? px : -px;
                 } else {
@@ -1084,7 +1094,10 @@ Game::Flight Game::simulateFlight(float x, float y, float dx, float dy, float sp
                 float px = kBrickHW + kBallR - fabsf(bx);
                 float py = kBrickHH + kBallR - fabsf(by);
                 if (px <= 0.0f || py <= 0.0f) continue;
-                if (px < py) {
+                bool horizontal = px < py;   // same wedge rule as updateBalls()
+                if (horizontal && fabsf(x + (bx > 0.0f ? px : -px)) > lim) horizontal = false;
+                else if (!horizontal && y + (by > 0.0f ? py : -py) < top) horizontal = true;
+                if (horizontal) {
                     dx = bx > 0.0f ? fabsf(dx) : -fabsf(dx);
                     x += bx > 0.0f ? px : -px;
                 } else {
@@ -1136,6 +1149,9 @@ void Game::makePlan(Plan& plan, const Ball& b, int ballIndex) const {
     float bestScore = -1e9f;
     for (int k = 0; k < kAiOffsetCount; k++) {
         float u = kAiOffsets[k];
+        // Four dry trips in a row: the offsets of the last plans are barred,
+        // whatever the simulation promises for them (see aiDryHits_).
+        if (aiDryHits_ >= 4 && (fabsf(u - aiRecentU_[0]) < 0.01f || fabsf(u - aiRecentU_[1]) < 0.01f)) continue;
         float px = plan.land.x - u * hw;         // where the paddle must be
         if (px > lim) px = lim;
         if (px < -lim) px = -lim;
@@ -1231,6 +1247,7 @@ void Game::updateAutoPlay(float dt) {
         if (!b.alive || ballHeld_) { p.valid = false; continue; }
         if (p.valid && p.dx == b.dx && p.dy == b.dy && p.speed == speedNow) { p.age += dt; continue; }
         makePlan(p, b, (int)i);
+        if (p.land.lands && p.u != aiRecentU_[0]) { aiRecentU_[1] = aiRecentU_[0]; aiRecentU_[0] = p.u; }
     }
 
     // The primary ball: the one that comes down first and can still be
