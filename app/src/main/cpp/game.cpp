@@ -338,11 +338,6 @@ void Game::mergeDiskHighScores() {
     fclose(rf);
 }
 
-void Game::saveHighScores() {
-    mergeDiskHighScores();
-    writeHighScores();
-}
-
 void Game::writeHighScores() {
     if (dataPath_[0] == '\0') return;
     HighScoreFile buf{};
