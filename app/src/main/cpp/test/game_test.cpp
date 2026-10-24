@@ -529,6 +529,48 @@ TEST(Ball, NeverTunnelsAtTheClampedWorstCaseDt) {
     EXPECT_GT(g.bricksBrokenForTest(), 5);
 }
 
+TEST(Ball, ACeilingCornerIsOneHitNotOnePerSubstep) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.startLevelForTest(7);                         // row 0 is armour: three hits
+    int target = slot(g, 0, 3), keep = slot(g, 0, 0);
+    for (int i = 0; i < g.brickTotalForTest(); i++)
+        if (i != target && i != keep) g.killBrickForTest(i);
+    ASSERT_EQ(g.brickHpForTest(target), 3);
+    // At the ceiling, just left of the brick's top-left corner, drifting right
+    // and barely downward: the way a ball comes off the ceiling.
+    float x0 = g.brickXForTest(target) - 0.055f - 0.016f - 0.0005f;
+    g.setBallForTest(x0, kTopWallY + 0.016f, 0.968f, 0.25f);
+    g.update(1.0f / 60.0f);                         // three substeps
+    EXPECT_TRUE(g.brickAliveForTest(target));       // was: dead (3 -> 0) in one frame
+    EXPECT_GE(g.brickHpForTest(target), 2) << "one contact, one hit";
+}
+
+TEST(Ball, ASideWallCornerIsOneHitNotOnePerSubstep) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.startLevelForTest(3);                          // row 0 is tough: two hits
+    int target = slot(g, 0, 0);
+    g.killBrickForTest(slot(g, 1, 0));               // the hole under it
+    ASSERT_EQ(g.brickHpForTest(target), 2);
+    float lim = aspect() - 0.016f;                   // the ball's centre at the wall
+    g.setBallForTest(-lim, g.brickYForTest(target) + 0.021f + 0.016f + 0.006f, 0.03f, -1.0f);
+    g.update(1.0f / 60.0f);
+    EXPECT_TRUE(g.brickAliveForTest(target)) << "a two-hit brick gone in one frame";
+    EXPECT_EQ(g.brickHpForTest(target), 1);
+}
+
+TEST(Ball, APaddleArrivingUnderAMissedBallDoesNotCatchIt) {
+    Game g;
+    startPlaying(g);
+    // Centre below the face (0.606): the ball's top edge is below the paddle.
+    g.setBallForTest(0.30f, kPaddleY + 0.01f, 0.0f, 1.0f);
+    g.setPaddleXForTest(0.30f);                     // the paddle arrives underneath
+    g.update(1.0f / 60.0f);
+    EXPECT_EQ(g.paddleHitsForTest(), 0);
+    EXPECT_GT(g.ballDyForTest(0), 0.0f);            // still falling
+}
+
 // ── Bonuses ──────────────────────────────────────────────────────────────────
 
 TEST(Bonus, FallingCapsuleIsCollectedByThePaddle) {
@@ -1286,6 +1328,26 @@ TEST(AutoPlay, PlaysTheLaneOnAWideScreen) {
     g.setAutoPlayForTest(true);
     for (int i = 0; i < 60 * 240 && g.isPlayingForTest(); i++) g.update(1.0f / 60.0f);
     EXPECT_TRUE(g.isLevelClearForTest()) << "bricks left " << g.breakableLeftForTest();
+}
+
+TEST(AutoPlay, BreaksOutOfADryOrbit) {
+    // Bench seed 5, level 9, wide lane: the planner kept choosing a rebound whose
+    // simulated flight broke a brick while the real ball grazed the steel block
+    // beside it and came straight back, for the rest of the level.
+    Game g;
+    g.setViewport(2400, 1080);
+    g.seedRng(5u * 2654435761u);
+    g.triggerNewGameForTest();
+    g.startLevelForTest(9);
+    g.setAutoPlayForTest(true);
+    int maxDry = 0, hitsAtBreak = 0, broken = 0;
+    for (float t = 0.0f; t < 300.0f && g.isPlayingForTest(); t += 1.0f / 60.0f) {
+        g.update(1.0f / 60.0f);
+        if (g.bricksBrokenForTest() != broken) { broken = g.bricksBrokenForTest(); hitsAtBreak = g.paddleHitsForTest(); }
+        if (g.paddleHitsForTest() - hitsAtBreak > maxDry) maxDry = g.paddleHitsForTest() - hitsAtBreak;
+    }
+    EXPECT_LT(maxDry, 12) << "paddle hits in a row without breaking a brick";
+    EXPECT_TRUE(!g.isPlayingForTest() || g.breakableLeftForTest() < 30);
 }
 
 // ── AI Glasses plumbing ──────────────────────────────────────────────────────
