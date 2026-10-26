@@ -136,9 +136,9 @@ the rounds.
 
 - **Pure native C++17** — Android
   [`NativeActivity`](https://developer.android.com/ndk/reference/group/native-activity)
-  with `native_app_glue`; the only production JVM code is the thin AI-Glasses
-  bridge (`GlassesBridge.kt` and the `GlassesGameActivity.kt` it launches),
-  plus the instrumented smoke test.
+  with `native_app_glue`; the only production JVM code is the immersive phone
+  activity (`GameActivity.kt`) and the thin AI-Glasses bridge (`GlassesBridge.kt`
+  and the `GlassesGameActivity.kt` it launches), plus the instrumented smoke test.
 - **Hand-written Vulkan 1.0 2D renderer** — one graphics pipeline, one vertex
   buffer holding two shapes (a quad and a disc), per-instance transform +
   translation + RGBA + fill style, FIFO present, two frames in flight.
@@ -194,7 +194,7 @@ android run --apks app/build/outputs/apk/debug/app-debug.apk
 
 # Or with adb
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n com.jpcottin.vulkanbreakout/android.app.NativeActivity
+adb shell am start -n com.jpcottin.vulkanbreakout/.GameActivity
 ```
 
 Requires a device with a Vulkan driver (API 24+).
