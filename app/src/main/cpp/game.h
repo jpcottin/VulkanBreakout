@@ -63,6 +63,12 @@ public:
     // process-wide session flag while the game runs on the glasses.
     void setGlassesConnected(bool v) { glassesConnected_ = v; }
     void setGlassesActive(bool v);
+    // The window got its focus back (the shade went up, the call ended, the
+    // other split-screen pane was left): the platform layer froze the round
+    // meanwhile. The balls in flight wait for a tap or a strip hold before
+    // they fly on (see holdForResume), so the ball frozen a few pixels above
+    // the paddle is not lost before the player's finger is back.
+    void onFocusGained();
     void setGlassesLaunchCallback(std::function<bool()> fn) { glassesLaunch_ = std::move(fn); }
     void setGlassesExitCallback(std::function<void()> fn)   { glassesExit_ = std::move(fn); }
 
@@ -118,6 +124,7 @@ private:
     void  updatePowerUps(float dt);
     void  checkLevelClear();
     void  serveBall();
+    void  holdForResume();
     void  launchBall();
     void  loseBall();
     void  bounceOffPaddle(Ball& b);
@@ -282,6 +289,7 @@ public:
         for (auto& b : bricks_) if (b.type != BRICK_STEEL) b.alive = false;
     }
     bool  ballHeldForTest()       const { return ballHeld_; }
+    bool  resumeHoldForTest()     const { return resumeHold_; }
     float ballXForTest(int i)     const { return balls_[i].x; }
     float ballYForTest(int i)     const { return balls_[i].y; }
     float ballDxForTest(int i)    const { return balls_[i].dx; }
@@ -373,6 +381,11 @@ private:
     std::vector<Ball> balls_;
     bool  ballHeld_   = false;  // a ball rests on the paddle, waiting for a tap
     float serveTimer_ = 0.0f;   // grace before a held ball may launch
+    // A round that froze while the player was away (focus loss, glasses
+    // hand-off) resumes only on a tap or a strip hold; the autopilot waits
+    // for no one. Set by holdForResume(), never with a ball on the paddle.
+    bool  resumeHold_  = false;
+    float resumeTimer_ = 0.0f;  // grace before that tap counts, as for a serve
     float speedBoost_ = 0.0f;   // extra speed earned by breaking bricks (0..1)
 
     // --- bonuses ---
