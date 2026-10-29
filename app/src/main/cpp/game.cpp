@@ -237,7 +237,22 @@ float Game::controlTargetX() const {
 void Game::setGlassesActive(bool v) {
     if (v == glassesActive_) return;
     glassesActive_ = v;
+    // Handed back mid-round (or the glasses went away): the phone's frozen
+    // round waits for the player, as after a focus loss.
+    if (!v) holdForResume();
     syncMusic();
+}
+
+void Game::onFocusGained() { holdForResume(); }
+
+// The balls in flight stay put until a tap or a strip hold says the player
+// is back. A round paused under Settings counts (it resumes the moment BACK
+// is tapped); a ball resting on the paddle already waits for its tap.
+void Game::holdForResume() {
+    State s = (state_ == SETTINGS) ? prevState_ : state_;
+    if (s != PLAYING || ballHeld_) return;
+    resumeHold_  = true;
+    resumeTimer_ = kServeDelay;
 }
 
 void Game::onPointerDown(int id, float x, float y) {
@@ -503,6 +518,7 @@ void Game::resetBattlefield() {
     particles_.clear();
     explosions_.clear();
     ballHeld_ = false;
+    resumeHold_ = false;
     wideTimer_ = 0.0f;
     slowTimer_ = 0.0f;
 }
@@ -798,6 +814,15 @@ void Game::update(float dt) {
             aiMove_ = false; aiLaunch_ = false;
             if (autoPlayActive_) updateAutoPlay(dt);
             updatePaddle(dt);
+            if (resumeHold_) {
+                // The paddle already follows the finger, so the player can
+                // get under the ball before letting it fly on.
+                if (resumeTimer_ > 0.0f) resumeTimer_ -= dt;
+                bool back = autoPlayActive_ ||
+                            (resumeTimer_ <= 0.0f && (tapped || moveHeld()));
+                if (!back) break;
+                resumeHold_ = false;
+            }
             if (ballHeld_ && serveTimer_ <= 0.0f &&
                 (tapped || moveHeld() || (autoPlayActive_ && aiLaunch_)))
                 launchBall();
@@ -1825,6 +1850,10 @@ void Game::render(std::vector<DrawCmd>& out) {
         // A served ball waits for a tap.
         if (scene == PLAYING && ballHeld_ && serveTimer_ <= 0.0f)
             drawText(out, "TAP TO LAUNCH", 0.0f, 0.45f, 0.040f,
+                     0.65f, 0.80f, 1.00f, 0.4f + 0.5f * pulse);
+        // A round frozen while the player was away waits the same way.
+        if (scene == PLAYING && resumeHold_)
+            drawText(out, "TAP TO RESUME", 0.0f, 0.45f, 0.040f,
                      0.65f, 0.80f, 1.00f, 0.4f + 0.5f * pulse);
     }
 

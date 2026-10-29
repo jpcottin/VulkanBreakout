@@ -166,6 +166,9 @@ static void handle_cmd(android_app* app, int32_t cmd) {
             // settings while we were away; adopt them instead of clobbering
             // the files with our stale startup copy on the next save.
             e->game.reloadFromDisk();
+            // The round froze with LOST_FOCUS (phone role): its balls wait
+            // for the player rather than flying on from the next frame.
+            if (!e->glassesRole) e->game.onFocusGained();
             e->lastTime = now_s();   // don't feed the paused time as one dt
             break;
         default:

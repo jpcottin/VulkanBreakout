@@ -1463,10 +1463,119 @@ TEST(Glasses, PhoneGameplayFreezesWhileOnGlasses) {
     EXPECT_FLOAT_EQ(g.ballYForTest(0), y);           // ball frozen mid-air
     EXPECT_EQ(g.powerUpCountForTest(), 1);           // capsule frozen too
     EXPECT_EQ(g.score(), score0);
-    // Hand the game back: everything moves again.
+    // Hand the game back: the round waits for the player, then moves again.
     g.setGlassesActive(false);
     step(g, 1.0f);
+    EXPECT_FLOAT_EQ(g.ballYForTest(0), y);
+    tap(g, kW * 0.5f, kH * 0.5f);
+    step(g, 1.0f);
     EXPECT_NE(g.ballYForTest(0), y);
+}
+
+// The phone freezes the round while its window has no focus (the shade, a
+// call, another split-screen pane); the focus coming back resumes it.
+TEST(Resume, AFrozenRoundWaitsForATap) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.0f, 0.50f, 0.0f, 1.0f);      // heading for the paddle line
+    int lives0 = g.lives();
+    g.onFocusGained();
+    EXPECT_TRUE(g.resumeHoldForTest());
+    step(g, 2.0f);
+    EXPECT_FLOAT_EQ(g.ballYForTest(0), 0.50f) << "the ball flew on with nobody there";
+    EXPECT_EQ(g.lives(), lives0);
+    tap(g, kW * 0.5f, kH * 0.5f);
+    g.update(0.016f);
+    EXPECT_FALSE(g.resumeHoldForTest());
+    step(g, 0.2f);
+    EXPECT_NE(g.ballYForTest(0), 0.50f);
+}
+
+TEST(Resume, AnEarlyTapDoesNotCount) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.0f, 0.0f, 0.0f, 1.0f);
+    g.onFocusGained();
+    tap(g, kW * 0.5f, kH * 0.5f);                   // the tap that brought the app back
+    g.update(0.016f);
+    EXPECT_TRUE(g.resumeHoldForTest());
+}
+
+TEST(Resume, TheStripResumesAndSteersFirst) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.3f, 0.0f, 0.0f, 1.0f);
+    g.onFocusGained();
+    g.onPointerDown(0, pxOf(0.3f), ctrlPy());       // finger back on the strip
+    step(g, 0.3f);
+    EXPECT_TRUE(g.resumeHoldForTest());
+    EXPECT_FLOAT_EQ(g.ballYForTest(0), 0.0f);
+    EXPECT_GT(g.paddleX(), 0.2f) << "the paddle should already follow the finger";
+    step(g, 0.4f);
+    EXPECT_FALSE(g.resumeHoldForTest());
+    EXPECT_GT(g.ballYForTest(0), 0.0f);
+}
+
+TEST(Resume, TheAutopilotWaitsForNoOne) {
+    Game g;
+    startPlaying(g);
+    g.setAutoPlayForTest(true);
+    g.setBallForTest(0.0f, 0.0f, 0.0f, 1.0f);
+    g.onFocusGained();
+    step(g, 0.2f);
+    EXPECT_FALSE(g.resumeHoldForTest());
+    EXPECT_GT(g.ballYForTest(0), 0.0f);
+}
+
+TEST(Resume, AHeldBallAlreadyWaits) {
+    Game g;
+    startPlaying(g);                                // the ball rests on the paddle
+    g.onFocusGained();
+    EXPECT_FALSE(g.resumeHoldForTest());
+    step(g, 0.6f);
+    tap(g, kW * 0.5f, kH * 0.5f);
+    g.update(0.016f);
+    EXPECT_FALSE(g.ballHeldForTest()) << "one tap launches as usual";
+}
+
+TEST(Resume, ARoundPausedUnderSettingsWaitsToo) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.0f, 0.0f, 0.0f, 1.0f);
+    openSettings(g);
+    g.onFocusGained();                              // focus came back under Settings
+    tap(g, pxOf(0.0f), pyOf(0.66f));                // BACK
+    g.update(0.016f);
+    ASSERT_TRUE(g.isPlayingForTest());
+    EXPECT_TRUE(g.resumeHoldForTest());
+    step(g, 1.0f);
+    EXPECT_FLOAT_EQ(g.ballYForTest(0), 0.0f);
+}
+
+TEST(Resume, TheTitleAndTheEndScreenGetNothing) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.onFocusGained();
+    EXPECT_FALSE(g.resumeHoldForTest());
+    tap(g, kW * 0.5f, kH * 0.5f);
+    g.update(0.016f);
+    EXPECT_TRUE(g.isPlayingForTest());
+    g.setLivesForTest(1);
+    g.setBallForTest(0.0f, 0.70f, 0.0f, 1.0f);      // past the paddle: lost
+    step(g, 0.5f);
+    ASSERT_TRUE(g.isGameOverForTest());
+    g.onFocusGained();
+    EXPECT_FALSE(g.resumeHoldForTest());
+}
+
+TEST(Resume, ANewLevelClearsTheHold) {
+    Game g;
+    startPlaying(g);
+    g.setBallForTest(0.0f, 0.0f, 0.0f, 1.0f);
+    g.onFocusGained();
+    g.startLevelForTest(2);
+    EXPECT_FALSE(g.resumeHoldForTest());
+    EXPECT_TRUE(g.ballHeldForTest());
 }
 
 TEST(Glasses, PhoneBannerDrawsOnlyWhileActive) {
