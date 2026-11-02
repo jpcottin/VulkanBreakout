@@ -93,8 +93,9 @@ the rounds.
   (top-right) · active bonuses with timer bars at the left of the control
   strip, the one place the wall, the ball and the capsules never reach.
 - **High scores:** top-5 leaderboard persisted locally; gold/silver/bronze
-  podium on the title screen; gold pulsing score + rank medal on game over
-  when a new record is set.
+  podium on the title screen; gold pulsing score + rank digit on game over
+  for every new table entry (podium colours for the top three, the paddle's
+  blue for a 4 or 5).
 - **Screen shake** and a **haptic pulse** (50 ms) when a ball is lost; the
   HUD stays stable.
 - **Sound:** all effects synthesised in real time — paddle blip, wall tick,
@@ -203,7 +204,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-141 tests covering the wall (columns follow the screen width, the lane cap on
+142 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -226,7 +227,8 @@ new game), progression (level-scaled clear bonus, in-flight wipe on clear, win a
 level 10, game over grace tap, title-return cleanup, wall rebuild on fold),
 process-death session restore (bounds-checked), high-score persistence
 (ordering, displacement, cap, cross-instance disk merge, exact-duplicate skip,
-reload-from-disk handoff, zero-score guard, tie guard, a file with a wrong
+reload-from-disk handoff, zero-score guard, tie guard, the end-screen rank digit
+for an entry below the podium, a file with a wrong
 magic, a truncated one or an oversized count left ignored), the Auto Play AI
 (self-launch after the serve delay, landing prediction matching the real
 flight, going under the ball, catching a ball off the wall, aiming the
@@ -317,7 +319,7 @@ reports its findings without ever blocking a PR.
 |-----|-------------|-----------|
 | **Build APK** | Compiles the debug APK | `debug-apk` |
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
-| **Native Tests** | Runs the same 141 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
+| **Native Tests** | Runs the same 142 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Auto Play bench** | Builds `game.cpp` on the host and plays 100 portrait and 50 landscape seeded campaigns with the autopilot; fails when fewer than 95% are won | — |
 | **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators. The test waits up to 60 s for the renderer to log `First frame presented`, asserts the activity is RESUMED and captures that frame with `screencap`, which the job pulls as the screenshot artifact, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0, 37.1 and 37.2 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*`; `instrumented-test-report-android-cli-experiment-*` on failure |

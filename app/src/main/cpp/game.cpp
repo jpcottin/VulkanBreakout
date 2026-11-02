@@ -89,7 +89,9 @@ static const float kPowerUpCol[4][3] = {
 };
 
 // High-score podium colours (gold/silver/bronze), shared by the title table
-// and the rank digit on the game-over/win screens.
+// and the rank digit on the game-over/win screens. A rank below the podium
+// takes the paddle's blue instead.
+static const float kPaddleCol[3] = {0.30f, 0.72f, 0.95f};
 static const float kPodiumCol[3][3] = {
     {1.00f, 0.85f, 0.20f},   // gold
     {0.78f, 0.82f, 0.92f},   // silver
@@ -1530,10 +1532,11 @@ void Game::drawBrick(std::vector<DrawCmd>& out, const Brick& b, float alpha) con
 void Game::drawPaddle(std::vector<DrawCmd>& out, float cx, float cy, float halfW,
                       float alpha) const {
     float hh = kPaddleHH;
-    emit(out, SHAPE_QUAD, cx, cy, halfW - hh, hh, 0.0f, 0.30f, 0.72f, 0.95f, alpha);
+    emit(out, SHAPE_QUAD, cx, cy, halfW - hh, hh, 0.0f,
+         kPaddleCol[0], kPaddleCol[1], kPaddleCol[2], alpha);
     for (int s = -1; s <= 1; s += 2)
         emit(out, SHAPE_DISC, cx + (float)s * (halfW - hh), cy, hh, hh, 0.0f,
-             0.30f, 0.72f, 0.95f, alpha);
+             kPaddleCol[0], kPaddleCol[1], kPaddleCol[2], alpha);
     emit(out, SHAPE_QUAD, cx, cy - hh * 0.55f, halfW - hh, hh * 0.25f, 0.0f,
          0.80f, 0.95f, 1.00f, alpha * 0.9f);
 }
@@ -1935,12 +1938,14 @@ void Game::drawEndScreen(std::vector<DrawCmd>& out, const char* title, float pul
     // Gold pulsing score if new high score, plain otherwise
     float sg = newHighScore_ ? scoreG : plainG, sb = newHighScore_ ? scoreB : plainB;
     drawNumber(out, score_, firstCx, -0.05f, fh, 1.0f, sg, sb, 1.0f);
-    // Rank digit above score when it's a new high score
-    if (newHighScore_ && newHighScoreRank_ >= 0 && newHighScoreRank_ < 3) {
+    // Rank digit above the score for every new table entry: podium colours
+    // for the top three, the paddle's blue for a 4 or 5. The score already
+    // pulses gold for those ranks, so a missing digit read as a glitch.
+    if (newHighScore_ && newHighScoreRank_ >= 0 && newHighScoreRank_ < kMaxScores) {
         int ri = newHighScoreRank_;
-        drawDigit(out, ri + 1, 0.0f, -0.42f, 0.14f,
-                  kPodiumCol[ri][0], kPodiumCol[ri][1], kPodiumCol[ri][2],
-                  0.65f + 0.35f * pulse);
+        float rr = kPaddleCol[0], rg = kPaddleCol[1], rb = kPaddleCol[2];
+        if (ri < 3) { rr = kPodiumCol[ri][0]; rg = kPodiumCol[ri][1]; rb = kPodiumCol[ri][2]; }
+        drawDigit(out, ri + 1, 0.0f, -0.42f, 0.14f, rr, rg, rb, 0.65f + 0.35f * pulse);
     }
     drawText(out, title, 0.0f, 0.30f, 0.070f, 1.0f, 1.0f, 1.0f, 0.5f + 0.5f * pulse);
 }
