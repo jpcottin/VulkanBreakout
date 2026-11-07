@@ -204,7 +204,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-142 tests covering the wall (columns follow the screen width, the lane cap on
+144 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -229,7 +229,9 @@ process-death session restore (bounds-checked), high-score persistence
 (ordering, displacement, cap, cross-instance disk merge, exact-duplicate skip,
 reload-from-disk handoff, zero-score guard, tie guard, the end-screen rank digit
 for an entry below the podium, a file with a wrong
-magic, a truncated one or an oversized count left ignored), the Auto Play AI
+magic, a truncated one or an oversized count left ignored, a row with a level
+the game does not have or a score below 1 dropped, rows out of order ranked
+on load), the Auto Play AI
 (self-launch after the serve delay, landing prediction matching the real
 flight, going under the ball, catching a ball off the wall, aiming the
 rebound at the last brick, never a dead-centre plan, capsule pickup when

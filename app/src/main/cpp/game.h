@@ -326,6 +326,7 @@ public:
     bool  slowActiveForTest()     const { return slowTimer_ > 0.0f; }
     void  expireSlowForTest()           { slowTimer_ = 0.0f; }
     long  highScoreForTest(int i) const { return highScores_[i].score; }
+    int   highScoreLevelForTest(int i) const { return highScores_[i].level; }
     bool  newHighScoreForTest()   const { return newHighScore_; }
     int   newHighScoreRankForTest() const { return newHighScoreRank_; }
     void  setScoreForTest(long s)       { score_ = s; }

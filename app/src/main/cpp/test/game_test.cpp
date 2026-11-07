@@ -1798,6 +1798,53 @@ TEST(HighScores, OversizedCountIsClampedToTheTable) {
 // A run that lands below the podium is still a new table entry: the score
 // pulses gold, so the rank digit above it must be there too, in the paddle's
 // blue rather than a podium colour. Digit 4 is four segment quads.
+// A damaged row (a level the game does not have, a score below 1) must not be
+// adopted: it would be shown on the title and written back on the next save.
+TEST(HighScores, RowsWithALevelOutsideTheGameAreDropped) {
+    const char* dir = scratchDir();
+    char path[512];
+    snprintf(path, sizeof(path), "%s/highscores.bin", dir);
+    unsigned char buf[8 + 16 * Game::kMaxScores] = {};
+    uint32_t magic = 0x4F4B5242u, count = Game::kMaxScores;   // "BRKO"
+    memcpy(buf, &magic, 4); memcpy(buf + 4, &count, 4);
+    const int64_t scores[Game::kMaxScores] = {500, 400, 300, 200, 100};
+    const int32_t levels[Game::kMaxScores] = {1, 0, 11, 3, -5};
+    for (int i = 0; i < Game::kMaxScores; i++) {
+        memcpy(buf + 8 + 16 * i, &scores[i], 8); memcpy(buf + 16 + 16 * i, &levels[i], 4);
+    }
+    writeBytes(path, buf, sizeof(buf));
+
+    Game g; g.setViewport(kW, kH); g.setDataPath(dir);
+    EXPECT_EQ(g.highScoreForTest(0), 500); EXPECT_EQ(g.highScoreLevelForTest(0), 1);
+    EXPECT_EQ(g.highScoreForTest(1), 200); EXPECT_EQ(g.highScoreLevelForTest(1), 3);
+    for (int i = 2; i < Game::kMaxScores; i++) EXPECT_EQ(g.highScoreForTest(i), 0) << "entry " << i;
+    remove(path);
+}
+
+TEST(HighScores, RowsWithANegativeScoreAreDroppedAndTheRestOrdered) {
+    const char* dir = scratchDir();
+    char path[512];
+    snprintf(path, sizeof(path), "%s/highscores.bin", dir);
+    unsigned char buf[8 + 16 * Game::kMaxScores] = {};
+    uint32_t magic = 0x4F4B5242u, count = Game::kMaxScores;   // "BRKO"
+    memcpy(buf, &magic, 4); memcpy(buf + 4, &count, 4);
+    // Out of order, with a negative row in the middle.
+    const int64_t scores[Game::kMaxScores] = {100, 300, -50, 200, 0};
+    const int32_t levels[Game::kMaxScores] = {2, 4, 2, 3, 1};
+    for (int i = 0; i < Game::kMaxScores; i++) {
+        memcpy(buf + 8 + 16 * i, &scores[i], 8); memcpy(buf + 16 + 16 * i, &levels[i], 4);
+    }
+    writeBytes(path, buf, sizeof(buf));
+
+    Game g; g.setViewport(kW, kH); g.setDataPath(dir);
+    EXPECT_EQ(g.highScoreForTest(0), 300); EXPECT_EQ(g.highScoreLevelForTest(0), 4);
+    EXPECT_EQ(g.highScoreForTest(1), 200); EXPECT_EQ(g.highScoreLevelForTest(1), 3);
+    EXPECT_EQ(g.highScoreForTest(2), 100); EXPECT_EQ(g.highScoreLevelForTest(2), 2);
+    EXPECT_EQ(g.highScoreForTest(3), 0);
+    EXPECT_EQ(g.highScoreForTest(4), 0);
+    remove(path);
+}
+
 TEST(HighScores, EndScreenNamesARankBelowThePodium) {
     const char* dir = scratchDir();
     char path[512];
