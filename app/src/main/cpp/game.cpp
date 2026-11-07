@@ -314,11 +314,13 @@ void Game::loadHighScores() {
     if (!f) return;
     HighScoreFile buf{};
     if (fread(&buf, sizeof(buf), 1, f) == 1 && buf.magic == kHsMagic) {
+        // Rows go through the same gate as a new score: a damaged row (a
+        // level the game does not have, a score below 1) is dropped instead
+        // of being shown and written back on the next save, and rows that
+        // arrive out of order land at their rank.
+        for (auto& hs : highScores_) hs = {};
         int n = (int)buf.count < kMaxScores ? (int)buf.count : kMaxScores;
-        for (int i = 0; i < n; i++) {
-            highScores_[i].score = (long)buf.e[i].score;
-            highScores_[i].level = buf.e[i].level;
-        }
+        for (int i = 0; i < n; i++) mergeHighScore((long)buf.e[i].score, buf.e[i].level);
     }
     fclose(f);
 }
@@ -327,7 +329,7 @@ void Game::loadHighScores() {
 // Exact-duplicate skipping matters because the phone and glasses instances
 // load the same file: without it every merge would double the shared rows.
 int Game::mergeHighScore(long score, int level) {
-    if (score <= 0) return -1;
+    if (score <= 0 || level < 1 || level > 10) return -1;
     for (const auto& hs : highScores_)
         if (hs.score == score && hs.level == level) return -1;
     int pos = kMaxScores;
