@@ -1843,11 +1843,26 @@ void Game::render(std::vector<DrawCmd>& out) {
         float levelFirstCx = asp_ - 0.06f - w * 0.5f - (float)(nd - 1) * step;
         drawNumber(out, level_, levelFirstCx, -0.90f, h,
                    1.0f, 0.85f, 0.2f, 1.0f);
-        // lives as small paddles, top-center
-        float gap = 0.062f;
+        // lives as small paddles, top-centre — stepping aside for the
+        // score: a portrait phone has room for three digits beside five
+        // centred paddles, and a fourth (level two or three) ran into the
+        // first. They never pass the level number either; a line too
+        // narrow for all three shrinks the paddles and their spacing
+        // together instead.
+        float gap = 0.062f, hw = 0.024f, hh = 0.006f;
+        const float kClear = 0.03f;
+        float scoreRight = -asp_ + 0.06f + w + (float)(numDigits(score_) - 1) * step;
+        float levelLeft  = levelFirstCx - w * 0.5f;
         float startX = -(float)(lives_ - 1) * gap * 0.5f;
+        if (startX - hw < scoreRight + kClear) startX = scoreRight + kClear + hw;
+        float room = levelLeft - kClear - hw - startX;      // for the paddles after the first
+        float need = (float)(lives_ - 1) * gap;
+        if (lives_ > 1 && room < need) {
+            float k = room > 0.0f ? room / need : 0.0f;
+            gap *= k; hw *= k; hh *= k;
+        }
         for (int i = 0; i < lives_; i++)
-            emit(out, SHAPE_QUAD, startX + (float)i * gap, -0.90f, 0.024f, 0.006f, 0.0f,
+            emit(out, SHAPE_QUAD, startX + (float)i * gap, -0.90f, hw, hh, 0.0f,
                  0.30f, 0.72f, 0.95f, 1.0f);
 
         drawPowerUpHUD(out);
