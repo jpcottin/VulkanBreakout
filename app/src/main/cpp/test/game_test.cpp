@@ -1708,6 +1708,64 @@ TEST(Render, EndScreenScoreFitsTheScreen) {
     }
 }
 
+// Horizontal extents (NDC) of the three HUD groups on the top line: the
+// white score, the blue mini-paddles and the yellow level number.
+static void hudExtents(const std::vector<DrawCmd>& cmds, float& scoreRight,
+                       float& livesLeft, float& livesRight, float& livesMid,
+                       float& levelLeft) {
+    scoreRight = -2.0f; livesLeft = 2.0f; livesRight = -2.0f; levelLeft = 2.0f;
+    int lives = 0; float livesSum = 0.0f;
+    for (const auto& c : cmds) {
+        if (c.shape != SHAPE_QUAD || fabsf(c.ty + 0.90f) > 0.06f) continue;
+        float ext = fabsf(c.mtx[0]) + fabsf(c.mtx[1]);
+        bool white  = c.color[0] > 0.99f && c.color[1] > 0.99f && c.color[2] > 0.99f;
+        bool yellow = c.color[0] > 0.99f && fabsf(c.color[1] - 0.85f) < 0.01f;
+        bool blue   = fabsf(c.color[0] - 0.30f) < 0.01f && fabsf(c.color[2] - 0.95f) < 0.01f;
+        if (white)       scoreRight = fmaxf(scoreRight, c.tx + ext);
+        else if (yellow) levelLeft  = fminf(levelLeft,  c.tx - ext);
+        else if (blue) {
+            livesLeft  = fminf(livesLeft,  c.tx - ext);
+            livesRight = fmaxf(livesRight, c.tx + ext);
+            livesSum += c.tx; lives++;
+        }
+    }
+    livesMid = lives > 0 ? livesSum / (float)lives : 0.0f;
+}
+
+// The score grows at a fixed glyph size while the lives sit in the middle of
+// the top line: on a portrait phone a four-digit score, reached by level
+// two or three, already ran into the first of five mini-paddles, and nine
+// of them reached the level number at level 10. The lives step aside for
+// the score and close up before the level, and stay centred while they can.
+TEST(Render, TheLivesStayClearOfTheScoreAndTheLevel) {
+    Game g;
+    startPlaying(g);
+    std::vector<DrawCmd> cmds;
+    float scoreRight, livesLeft, livesRight, livesMid, levelLeft;
+
+    g.setScoreForTest(630);                        // three digits: room to centre
+    g.render(cmds);
+    hudExtents(cmds, scoreRight, livesLeft, livesRight, livesMid, levelLeft);
+    EXPECT_NEAR(livesMid, 0.0f, 0.001f);
+    EXPECT_LT(scoreRight, livesLeft);
+
+    g.setScoreForTest(1234);                       // four digits: the common case
+    cmds.clear();
+    g.render(cmds);
+    hudExtents(cmds, scoreRight, livesLeft, livesRight, livesMid, levelLeft);
+    EXPECT_LT(scoreRight, livesLeft) << "a four-digit score runs into the lives";
+    EXPECT_LT(livesRight, levelLeft);
+
+    g.startLevelForTest(10);                       // two-digit level, nine lives
+    g.setScoreForTest(98765);
+    g.setLivesForTest(9);
+    cmds.clear();
+    g.render(cmds);
+    hudExtents(cmds, scoreRight, livesLeft, livesRight, livesMid, levelLeft);
+    EXPECT_LT(scoreRight, livesLeft) << "a five-digit score runs into the lives";
+    EXPECT_LT(livesRight, levelLeft) << "nine lives run into the level number";
+}
+
 TEST(Render, SettingsRowsDrawInEveryGlassesState) {
     for (int mode = 0; mode < 3; mode++) {
         Game g;
