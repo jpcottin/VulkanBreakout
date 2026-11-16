@@ -677,6 +677,16 @@ TEST(Bonus, TimedBonusesEndWithTheBall) {
     EXPECT_FALSE(g.slowActiveForTest());
 }
 
+TEST(Bonus, ACapsuleStillFallingGoesWithTheLastBall) {
+    Game g;
+    startPlaying(g);
+    g.setLivesForTest(1);
+    g.spawnTestPowerUp(g.paddleX() + 0.30f, -0.40f, (int)Game::PU_WIDE);
+    loseABall(g);
+    ASSERT_TRUE(g.isGameOverForTest());
+    EXPECT_EQ(g.powerUpCountForTest(), 0);
+}
+
 // ── Level clear / win ─────────────────────────────────────────────────────────
 
 TEST(Progression, ClearingTheWallPaysABonusAndAdvances) {
@@ -757,7 +767,7 @@ TEST(Progression, TitleReturnClearsLeftovers) {
     g.setLivesForTest(1);
     loseABall(g);
     ASSERT_TRUE(g.isGameOverForTest());
-    ASSERT_EQ(g.powerUpCountForTest(), 1);      // still falling on the end screen
+    ASSERT_EQ(g.powerUpCountForTest(), 0);      // gone with the last ball
     step(g, 0.7f);
     tap(g, kW * 0.5f, kH * 0.5f);
     g.update(0.016f);

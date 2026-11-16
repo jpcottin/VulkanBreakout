@@ -87,7 +87,8 @@ the rounds.
   and end with the ball.
 - **Lives:** 5 balls. A ball that passes the paddle is gone — a fresh one is
   served on the paddle and launches on your next tap. Losing one of several
-  balls costs nothing. The game ends when the last ball is lost.
+  balls costs nothing. The game ends when the last ball is lost, and a
+  capsule still falling goes with it.
 - **Level clear:** +100 pts ×level. Clearing level 10 wins the game.
 - **HUD:** score (top-left) · balls left as mini paddles (top-center, stepping
   aside once a four-digit score needs the room) · level (top-right) · active
@@ -205,7 +206,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-145 tests covering the wall (columns follow the screen width, the lane cap on
+146 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -221,7 +222,7 @@ reflecting horizontally, speed ramp, per-level speed, no tunnelling at the
 clamped worst-case dt), bonuses (capsule fall and pickup, fall-through, wide
 paddle and its clamp-back on expiry, slow ball, multi-ball split and cap,
 extra life up to nine, losing one of several balls, bonuses ending with the
-ball, the bonus flash where the capsule was caught), feedback (the lost-ball
+ball, a falling capsule gone with the last ball, the bonus flash where the capsule was caught), feedback (the lost-ball
 shake and its settling, the haptic buzz on a lost ball and nothing else, the
 idle-screen flag per state and during a glasses session, the tally reset by a
 new game), progression (level-scaled clear bonus, in-flight wipe on clear, win at
@@ -323,7 +324,7 @@ reports its findings without ever blocking a PR.
 |-----|-------------|-----------|
 | **Build APK** | Compiles the debug APK | `debug-apk` |
 | **Host tests** | Builds `game.cpp` and the Google Test suite with the host compiler and runs it | — |
-| **Native Tests** | Runs the same 145 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
+| **Native Tests** | Runs the same 146 Google Test cases on x86\_64 emulators (API 34 + API 36) | — |
 | **Auto Play bench** | Builds `game.cpp` on the host and plays 100 portrait and 50 landscape seeded campaigns with the autopilot; fails when fewer than 95% are won | — |
 | **Smoke Test** | Runs the Android instrumented test on x86\_64 emulators. The test waits up to 60 s for the renderer to log `First frame presented`, asserts the activity is RESUMED and captures that frame with `screencap`, which the job pulls as the screenshot artifact, so a dead Vulkan path fails loudly. Blocking on API 34 + 36; non-blocking legs on API 37.0, 37.1 and 37.2 (`google_apis_ps16k`, 16 KB pages) across the lavapipe and auto GPU backends, from both the stable and canary channels | `smoke-screenshot-api*`, `smoke-test-results-api*`, `smoke-logcat-api*` (suffixed per leg) |
 | **Android CLI experiment** | Drives the same instrumented test through the `android` CLI — SDK install, AVD creation, boot and teardown — instead of `sdkmanager`/`avdmanager` plus the emulator-runner action | `cli-smoke-*`; `instrumented-test-report-android-cli-experiment-*` on failure |

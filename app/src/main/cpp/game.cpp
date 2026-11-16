@@ -701,7 +701,9 @@ void Game::spawnDebris(float ax, float ay, float ar, float cr, float cg, float c
 }
 
 // The last ball went into the pit: a life, the bonuses and the shake. The
-// next ball is served at once; the game ends on the last life.
+// next ball is served at once; the game ends on the last life, and a capsule
+// still falling goes with the last ball (the end screen would show it frozen
+// in mid-air, since nothing updates it there).
 void Game::loseBall() {
     ballsLost_++;
     lives_--;
@@ -718,6 +720,7 @@ void Game::loseBall() {
     explosions_.push_back(flash);
     if (lives_ <= 0) {
         balls_.clear();
+        powerUps_.clear();
         state_ = GAME_OVER; stateTimer_ = 0.0f;
         checkHighScore();
         return;
