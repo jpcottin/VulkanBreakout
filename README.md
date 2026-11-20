@@ -130,8 +130,8 @@ the rounds.
   glasses row — *PLAY* hands the whole game to the glasses' projected
   display, where the **touchbar** drives it: finger position steers the
   paddle, contact launches the ball. The phone shows an "ON GLASSES" banner
-  and throttles itself; *PHONE* (in Settings) brings the game home. With
-  nothing paired the row reads *NONE*.
+  and throttles itself; *PHONE* (in Settings) brings the game home, and so
+  does a pair that disconnects. With nothing paired the row reads *NONE*.
 - **Resumes after process death:** level, score and lives are saved with the
   activity state; the wall comes back fresh.
 
@@ -206,7 +206,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-146 tests covering the wall (columns follow the screen width, the lane cap on
+148 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -248,7 +248,7 @@ Settings opened from a round, off with Sound, off on the phone while the
 glasses play while the glasses instance keeps its own, no engine means no
 calls), the AI-Glasses integration (touchbar steer and launch from
 anywhere, strip-mode isolation, no gear on glasses, pure-black clear,
-settings row launch/inert/exit behaviour, phone gameplay freeze and banner
+settings row launch/inert/exit behaviour, a disconnect ending the session, phone gameplay freeze and banner
 during a glasses session) and render coverage of every reachable state.
 
 They build and run on the host in a few seconds — no device, no emulator:
