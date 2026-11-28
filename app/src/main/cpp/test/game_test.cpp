@@ -460,6 +460,27 @@ TEST(Ball, ToughBrickTakesTwoHits) {
     EXPECT_EQ(g.score() - before, 20L * 3);
 }
 
+TEST(Ball, ArmouredBrickTakesThreeHits) {
+    Game g;
+    g.setViewport(kW, kH);
+    g.startLevelForTest(7);                     // row 0 is armoured
+    int target = slot(g, 0, 3);
+    ASSERT_EQ(g.brickTypeForTest(target), (int)Game::BRICK_ARMOR);
+    for (int r = 1; r < g.wallRowsForTest(); r++) g.killBrickForTest(slot(g, r, 3));
+    long before = g.score();
+    for (int hit = 1; hit <= 2; hit++) {
+        g.setBallForTest(g.brickXForTest(target), g.brickYForTest(target) + 0.10f, 0.0f, -1.0f);
+        step(g, 0.2f);
+        EXPECT_TRUE(g.brickAliveForTest(target)) << "hit " << hit;
+        EXPECT_EQ(g.brickHpForTest(target), 3 - hit);
+        EXPECT_EQ(g.score(), before);           // a dent does not score
+    }
+    g.setBallForTest(g.brickXForTest(target), g.brickYForTest(target) + 0.10f, 0.0f, -1.0f);
+    step(g, 0.2f);
+    EXPECT_FALSE(g.brickAliveForTest(target));
+    EXPECT_EQ(g.score() - before, 30L * 7);
+}
+
 TEST(Ball, SteelBrickNeverBreaks) {
     Game g;
     g.setViewport(kW, kH);

@@ -206,7 +206,7 @@ Requires a device with a Vulkan driver (API 24+).
 
 ### Native unit tests (Google Test)
 
-148 tests covering the wall (columns follow the screen width, the lane cap on
+149 tests covering the wall (columns follow the screen width, the lane cap on
 wide screens, rows per level, every wall fits the screen, tough/armoured/steel
 bricks arriving with the levels, holes, level clamp at 10), serve and launch
 (the ball waits on the paddle and follows it, the serve delay, tap and
@@ -217,7 +217,7 @@ under Settings, cleared by a new level), paddle control (steer, stop-on-finger, 
 boundary, drag, cancel, viewport shrink), the huge-frame dt clamp, ball
 physics (side walls, ceiling, paddle bounce and its angle by hit position,
 never perfectly vertical, lost ball costs a life and re-serves, game over on
-the last life, brick breaking and scoring, two-hit bricks, steel, side hits
+the last life, brick breaking and scoring, two- and three-hit bricks (and what each pays), steel, side hits
 reflecting horizontally, speed ramp, per-level speed, no tunnelling at the
 clamped worst-case dt), bonuses (capsule fall and pickup, fall-through, wide
 paddle and its clamp-back on expiry, slow ball, multi-ball split and cap,
